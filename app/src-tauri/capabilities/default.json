@@ -1,10 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Core window access plus a durable JSON copy of the plan in the app data directory.",
-  "windows": ["main"],
+  "description": "Core window access (including window dragging from the toolbar) plus a durable JSON copy of the plan in the app data directory.",
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
+    "core:window:allow-start-dragging",
     "fs:default",
     "fs:allow-read-text-file",
     "fs:allow-write-text-file",
@@ -12,7 +15,14 @@
     "fs:allow-mkdir",
     {
       "identifier": "fs:scope",
-      "allow": [{ "path": "$APPDATA" }, { "path": "$APPDATA/**" }]
+      "allow": [
+        {
+          "path": "$APPDATA"
+        },
+        {
+          "path": "$APPDATA/**"
+        }
+      ]
     }
   ]
 }

@@ -42,8 +42,8 @@ export interface Lane {
   collapsed: boolean
 }
 
-export type GroupBy = 'lane' | 'status' | 'none'
 export type Density = 'compact' | 'normal' | 'roomy'
+export type ThemeMode = 'light' | 'dark' | 'auto'
 
 export type DependencyType = 'finish-to-start' | 'start-to-start'
 
@@ -65,9 +65,10 @@ export interface PersistedState extends Snapshot {
   version: number
   ppd: number
   sidebarWidth: number
-  groupBy: GroupBy
   density: Density
   visibleColumns: string[]
   autoShift: boolean
   showMinimap: boolean
+  noLaneCollapsed: boolean
+  sidebarOpen: boolean
 }

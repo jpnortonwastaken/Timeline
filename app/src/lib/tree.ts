@@ -1,6 +1,5 @@
-import type { GroupBy, Item, ItemId, Lane, Status } from '../types'
+import type { Item, ItemId, Lane } from '../types'
 import { isoToDay } from './time'
-import { statusLabel } from '../store'
 
 const ROOT = '__root__'
 
@@ -21,8 +20,22 @@ export interface ItemRow {
   hasChildren: boolean
   collapsed: boolean
   span: Span | null
-  /** Resolved colour, falling back to the lane when the item has none. */
+  /** Resolved color, falling back to the lane when the item has none. */
   colorId: string
+  /** First / last row of a nested run, for drawing the recessed well. */
+  nestTop: boolean
+  nestBottom: boolean
+  /**
+   * One entry per *pass-through* guide cell, so `trail[i]` maps straight onto
+   * indent cell `i`: true when the ancestor whose siblings live in that column
+   * still has one to come, meaning its line runs through this row.
+   *
+   * Length is `depth - 1`, not `depth` — the final cell is the elbow, which
+   * uses `isLast` instead.
+   */
+  trail: boolean[]
+  /** Last child of its parent, so the elbow is a corner rather than a tee. */
+  isLast: boolean
 }
 
 export interface GroupRow {
@@ -40,12 +53,15 @@ export interface NewRow {
   kind: 'new'
   key: string
   laneId: string | null
-  status: Status | null
 }
 
-export type Row = ItemRow | GroupRow | NewRow
+/** The affordance for adding a lane, at the foot of the lane list. */
+export interface NewLaneRow {
+  kind: 'new-lane'
+  key: string
+}
 
-const STATUS_ORDER: Status[] = ['active', 'planned', 'idea', 'done', 'dropped']
+export type Row = ItemRow | GroupRow | NewRow | NewLaneRow
 
 /** Children indexed by parent, pre-sorted. Built once per flatten. */
 function childIndex(items: Record<ItemId, Item>) {
@@ -100,8 +116,9 @@ function computeSpan(
 export interface FlattenArgs {
   items: Record<ItemId, Item>
   lanes: Record<string, Lane>
-  groupBy: GroupBy
   search: string
+  /** Collapse state of the synthetic "No lane" group. */
+  noLaneCollapsed: boolean
 }
 
 export interface FlattenResult {
@@ -110,7 +127,7 @@ export interface FlattenResult {
   indexById: Map<ItemId, number>
 }
 
-export function flatten({ items, lanes, groupBy, search }: FlattenArgs): FlattenResult {
+export function flatten({ items, lanes, search, noLaneCollapsed }: FlattenArgs): FlattenResult {
   const byParent = childIndex(items)
   const spanCache = new Map<ItemId, Span | null>()
   const q = search.trim().toLowerCase()
@@ -133,9 +150,14 @@ export function flatten({ items, lanes, groupBy, search }: FlattenArgs): Flatten
   }
 
   const rows: Row[] = []
-  const laneColor = (laneId: string | null) => (laneId && lanes[laneId]?.colorId) || 'gray'
 
-  const emit = (item: Item, depth: number, inheritedColor: string) => {
+  const emit = (
+    item: Item,
+    depth: number,
+    inheritedColor: string,
+    trail: boolean[],
+    isLast: boolean,
+  ) => {
     if (keep && !keep.has(item.id)) return
     const kids = (byParent.get(item.id) ?? []).filter((c) => !keep || keep.has(c.id))
     const collapsed = item.collapsed && !q
@@ -150,76 +172,77 @@ export function flatten({ items, lanes, groupBy, search }: FlattenArgs): Flatten
       collapsed,
       span: computeSpan(item, byParent, spanCache),
       colorId,
+      nestTop: false,
+      nestBottom: false,
+      trail,
+      isLast,
     })
-    if (!collapsed) for (const c of kids) emit(c, depth + 1, colorId)
+    // A child's pass-through cells are this item's own, plus one new column for
+    // this item's sibling line. Top-level items are the exception: their
+    // children have a single cell, which is the elbow, so no pass-throughs.
+    if (!collapsed) {
+      const childTrail = depth === 0 ? [] : [...trail, !isLast]
+      kids.forEach((c, i) => emit(c, depth + 1, colorId, childTrail, i === kids.length - 1))
+    }
   }
 
   const roots = byParent.get(ROOT) ?? []
 
-  if (groupBy === 'none') {
-    for (const it of roots) emit(it, 0, laneColor(it.laneId))
-    if (!q) rows.push({ kind: 'new', key: 'new:root', laneId: null, status: null })
-  } else if (groupBy === 'lane') {
-    const groups = Object.values(lanes)
-      .sort((a, b) => a.order - b.order)
-      .map((l) => ({
-        id: l.id,
-        label: l.name,
-        colorId: l.colorId,
-        collapsed: l.collapsed,
-        members: roots.filter((i) => i.laneId === l.id),
-      }))
-    const orphans = roots.filter((i) => !i.laneId || !lanes[i.laneId])
-    if (orphans.length) {
-      groups.push({
-        id: '__none',
-        label: 'No lane',
-        colorId: 'gray',
-        collapsed: false,
-        members: orphans,
-      })
-    }
-    for (const g of groups) {
-      const visible = g.members.filter((m) => !keep || keep.has(m.id))
-      if (q && !visible.length) continue
-      const collapsed = g.collapsed && !q
-      rows.push({
-        kind: 'group',
-        key: 'g:' + g.id,
-        id: g.id,
-        label: g.label,
-        colorId: g.colorId,
-        collapsed,
-        count: visible.length,
-      })
-      if (!collapsed) {
-        for (const m of visible) emit(m, 0, g.colorId)
-        if (!q) {
-          rows.push({
-            kind: 'new',
-            key: 'new:' + g.id,
-            laneId: g.id === '__none' ? null : g.id,
-            status: null,
-          })
-        }
+  const groups = Object.values(lanes)
+    .sort((a, b) => a.order - b.order)
+    .map((l) => ({
+      id: l.id,
+      label: l.name,
+      colorId: l.colorId,
+      collapsed: l.collapsed,
+      members: roots.filter((i) => i.laneId === l.id),
+    }))
+  const orphans = roots.filter((i) => !i.laneId || !lanes[i.laneId])
+  if (orphans.length) {
+    groups.push({
+      id: '__none',
+      label: 'No lane',
+      colorId: 'gray',
+      collapsed: noLaneCollapsed,
+      members: orphans,
+    })
+  }
+
+  for (const g of groups) {
+    const visible = g.members.filter((m) => !keep || keep.has(m.id))
+    if (q && !visible.length) continue
+    const collapsed = g.collapsed && !q
+    rows.push({
+      kind: 'group',
+      key: 'g:' + g.id,
+      id: g.id,
+      label: g.label,
+      colorId: g.colorId,
+      collapsed,
+      count: visible.length,
+    })
+    if (!collapsed) {
+      visible.forEach((m, i) => emit(m, 0, g.colorId, [], i === visible.length - 1))
+      if (!q) {
+        rows.push({
+          kind: 'new',
+          key: 'new:' + g.id,
+          laneId: g.id === '__none' ? null : g.id,
+        })
       }
     }
-  } else {
-    for (const st of STATUS_ORDER) {
-      const members = roots.filter((i) => i.status === st && (!keep || keep.has(i.id)))
-      if (!members.length) continue
-      rows.push({
-        kind: 'group',
-        key: 'g:' + st,
-        id: st,
-        label: statusLabel[st],
-        colorId: 'gray',
-        collapsed: false,
-        count: members.length,
-      })
-      for (const m of members) emit(m, 0, laneColor(m.laneId))
-      if (!q) rows.push({ kind: 'new', key: 'new:' + st, laneId: null, status: st })
-    }
+  }
+  if (!q) rows.push({ kind: 'new-lane', key: 'new-lane' })
+
+  // Shade only the ends of each nested run: shading every child row would put
+  // a divider between siblings instead of reading as one container.
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]
+    if (r.kind !== 'item' || r.depth === 0) continue
+    const prev = rows[i - 1]
+    const next = rows[i + 1]
+    r.nestTop = !(prev?.kind === 'item' && prev.depth >= r.depth)
+    r.nestBottom = !(next?.kind === 'item' && next.depth >= r.depth)
   }
 
   const indexById = new Map<ItemId, number>()

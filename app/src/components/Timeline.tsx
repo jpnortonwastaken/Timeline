@@ -18,8 +18,10 @@ import {
   totalWidth,
   xToDay,
 } from '../lib/time'
-import { cmd, DENSITY_HEIGHT, HEADER_HEIGHT, TIER_HEIGHT } from '../lib/viewport'
+import { cmd, COLUMN_WIDTH, DENSITY_HEIGHT, fitColumns, HEADER_HEIGHT, TIER_HEIGHT } from '../lib/viewport'
 import { TimelineRow } from './Row'
+import { ContextMenu } from './ContextMenu'
+import type { MenuState } from './ContextMenu'
 
 const OVERSCAN_PX = 400
 const OVERSCAN_ROWS = 6
@@ -48,9 +50,53 @@ interface Drag {
   linkFrom: string | null
   linkDir: 'in' | 'out'
   linkTarget: string | null
-  /** reorder mode */
+  /** reorder mode, and vertical dragging of a bar */
   dropTarget: { id: string; position: 'before' | 'after' | 'child' } | null
+  sourceIndex: number
+  /** Locked once at the start of a bar drag: dates or rows, never both. */
+  axis: 'x' | 'y' | null
+  /** Selection to union with, when a marquee is additive. */
+  baseSelection: string[]
+  /** Last selection pushed while sweeping, so we only re-render on a change. */
+  lastHits: string
 }
+
+type Pt = [number, number]
+
+/**
+ * Turn an orthogonal polyline into a path with rounded corners.
+ *
+ * The radius at each corner is clamped to half of the shorter adjoining
+ * segment, so a tight elbow degrades gracefully into a smaller curve instead
+ * of overshooting and doubling back on itself.
+ */
+function roundedPolyline(pts: Pt[], radius: number): string {
+  const p = pts.filter((q, i) => i === 0 || q[0] !== pts[i - 1][0] || q[1] !== pts[i - 1][1])
+  if (p.length < 2) return ''
+
+  let d = `M${p[0][0]},${p[0][1]}`
+  for (let i = 1; i < p.length - 1; i++) {
+    const [px, py] = p[i - 1]
+    const [cx, cy] = p[i]
+    const [nx, ny] = p[i + 1]
+    const inLen = Math.hypot(cx - px, cy - py) || 1
+    const outLen = Math.hypot(nx - cx, ny - cy) || 1
+    const r = Math.min(radius, inLen / 2, outLen / 2)
+    d += `L${cx - ((cx - px) / inLen) * r},${cy - ((cy - py) / inLen) * r}`
+    d += `Q${cx},${cy} ${cx + ((nx - cx) / outLen) * r},${cy + ((ny - cy) / outLen) * r}`
+  }
+  const last = p[p.length - 1]
+  return d + `L${last[0]},${last[1]}`
+}
+
+/** How far the line runs straight out of a bar before it turns. */
+const DEP_STUB = 15
+/** How far left of the target it comes back when routing around. */
+const DEP_BACK = 22
+/** Maximum corner radius; the clamp above shrinks it where there's no room. */
+const DEP_RADIUS = 14
+/** Gap left for the arrowhead. */
+const DEP_HEAD = 7
 
 /** An empty drag record; each mode fills in only the fields it needs. */
 const blank = (e: { clientX: number; clientY: number }): Drag => ({
@@ -75,6 +121,10 @@ const blank = (e: { clientX: number; clientY: number }): Drag => ({
   linkDir: 'out',
   linkTarget: null,
   dropTarget: null,
+  sourceIndex: 0,
+  axis: null,
+  baseSelection: [],
+  lastHits: '',
 })
 
 const COLUMN_LABELS: Record<string, string> = {
@@ -87,22 +137,36 @@ export function Timeline() {
   const scrollerRef = useRef<HTMLDivElement>(null)
   const layerRef = useRef<HTMLDivElement>(null)
   const tipRef = useRef<HTMLDivElement>(null)
+  const guideRef = useRef<HTMLDivElement>(null)
+  const edgeLabelRef = useRef<HTMLDivElement>(null)
   const linkPathRef = useRef<SVGPathElement>(null)
   const dragRef = useRef<Drag | null>(null)
   const pendingScrollLeft = useRef<number | null>(null)
   const rafRef = useRef(0)
+  const timerRef = useRef(0)
+  const animRef = useRef(0)
 
   const items = useStore((s) => s.items)
   const lanes = useStore((s) => s.lanes)
   const deps = useStore((s) => s.deps)
-  const groupBy = useStore((s) => s.groupBy)
   const search = useStore((s) => s.search)
   const ppd = useStore((s) => s.ppd)
-  const sidebarWidth = useStore((s) => s.sidebarWidth)
+  const sidebarWidthSetting = useStore((s) => s.sidebarWidth)
+  const sidebarOpen = useStore((s) => s.sidebarOpen)
   const density = useStore((s) => s.density)
-  const columns = useStore((s) => s.visibleColumns)
+  const allColumns = useStore((s) => s.visibleColumns)
+
+  // Collapsing the table is just a zero-width one, so every downstream
+  // calculation - sticky offsets, culling, drag maths - works unchanged.
+  const sidebarWidth = sidebarOpen ? sidebarWidthSetting : 0
+  const columns = useMemo(
+    () => (sidebarOpen ? fitColumns(allColumns, sidebarWidth) : []),
+    [allColumns, sidebarWidth, sidebarOpen],
+  )
   const selection = useStore((s) => s.selection)
   const editingId = useStore((s) => s.editingId)
+  const editingLaneId = useStore((s) => s.editingLaneId)
+  const noLaneCollapsed = useStore((s) => s.noLaneCollapsed)
 
   const setPpd = useStore((s) => s.setPpd)
   const select = useStore((s) => s.select)
@@ -115,10 +179,13 @@ export function Timeline() {
   const removeDep = useStore((s) => s.removeDep)
   const cascade = useStore((s) => s.cascade)
   const reorderItem = useStore((s) => s.reorderItem)
+  const createLane = useStore((s) => s.createLane)
+  const setEditingLane = useStore((s) => s.setEditingLane)
   const setViewRange = useStore((s) => s.setViewRange)
 
   const [view, setView] = useState({ scrollTop: 0, scrollLeft: 0, w: 1200, h: 800 })
   const [linkingActive, setLinkingActive] = useState(false)
+  const [menu, setMenu] = useState<MenuState | null>(null)
 
   // Live values for listeners that must not be re-bound on every render.
   const ppdRef = useRef(ppd)
@@ -127,8 +194,8 @@ export function Timeline() {
   sidebarRef.current = sidebarWidth
 
   const { rows } = useMemo(
-    () => flatten({ items, lanes, groupBy, search }),
-    [items, lanes, groupBy, search],
+    () => flatten({ items, lanes, search, noLaneCollapsed }),
+    [items, lanes, search, noLaneCollapsed],
   )
 
   const rowH = DENSITY_HEIGHT[density]
@@ -156,9 +223,18 @@ export function Timeline() {
 
   // -- scroll tracking -------------------------------------------------------
   const syncView = useCallback(() => {
-    if (rafRef.current) return
-    rafRef.current = requestAnimationFrame(() => {
+    // A bare rAF token can latch: if the window is occluded the callback may
+    // never run, and the token then blocks every later sync - scroll position
+    // silently freezes at whatever it was. A timeout races the frame so the
+    // state can't get permanently stuck; whichever fires first cancels both.
+    if (rafRef.current || timerRef.current) return
+
+    const flush = () => {
+      cancelAnimationFrame(rafRef.current)
+      clearTimeout(timerRef.current)
       rafRef.current = 0
+      timerRef.current = 0
+
       const el = scrollerRef.current
       if (!el) return
       const sw = sidebarRef.current
@@ -179,7 +255,10 @@ export function Timeline() {
               h: el.clientHeight,
             },
       )
-    })
+    }
+
+    rafRef.current = requestAnimationFrame(flush)
+    timerRef.current = setTimeout(flush, 120) as unknown as number
   }, [setViewRange])
 
   useEffect(() => {
@@ -192,13 +271,56 @@ export function Timeline() {
   }, [syncView])
 
   // -- commands --------------------------------------------------------------
-  const goToDay = useCallback((day: number, align = 0.32, smooth = true) => {
-    const el = scrollerRef.current
-    if (!el) return
-    const sw = sidebarRef.current
-    const left = dayToX(day, ppdRef.current) - (el.clientWidth - sw) * align
-    el.scrollTo({ left: Math.max(0, left), behavior: smooth ? 'smooth' : 'auto' })
+  /** Abort any in-flight jump, so a manual scroll always wins. */
+  const stopScrollAnimation = useCallback(() => {
+    cancelAnimationFrame(animRef.current)
+    animRef.current = 0
   }, [])
+
+  /**
+   * Animate scrollLeft ourselves rather than using `behavior: 'smooth'`, whose
+   * duration grows with distance - at day zoom a jump can be hundreds of
+   * thousands of pixels, which native smooth scrolling would crawl through.
+   * This stays between 220ms and 520ms however far it travels.
+   */
+  const animateScrollLeft = useCallback(
+    (to: number) => {
+      const el = scrollerRef.current
+      if (!el) return
+      stopScrollAnimation()
+      const from = el.scrollLeft
+      const delta = to - from
+      if (Math.abs(delta) < 1) return
+
+      const duration = Math.min(520, Math.max(220, Math.abs(delta) * 0.35))
+      const start = performance.now()
+      const easeOutCubic = (t: number) => 1 - (1 - t) ** 3
+
+      const step = (now: number) => {
+        const t = Math.min(1, (now - start) / duration)
+        el.scrollLeft = from + delta * easeOutCubic(t)
+        animRef.current = t < 1 ? requestAnimationFrame(step) : 0
+      }
+      animRef.current = requestAnimationFrame(step)
+    },
+    [stopScrollAnimation],
+  )
+
+  const goToDay = useCallback(
+    (day: number, align = 0.32, smooth = true) => {
+      const el = scrollerRef.current
+      if (!el) return
+      const sw = sidebarRef.current
+      const left = Math.max(0, dayToX(day, ppdRef.current) - (el.clientWidth - sw) * align)
+      if (smooth) {
+        animateScrollLeft(left)
+      } else {
+        stopScrollAnimation()
+        el.scrollLeft = left
+      }
+    },
+    [animateScrollLeft, stopScrollAnimation],
+  )
 
   const zoom = useCallback(
     (next: number, anchorClientX?: number) => {
@@ -228,6 +350,8 @@ export function Timeline() {
       syncView()
     }
   }, [ppd, syncView])
+
+  useEffect(() => () => cancelAnimationFrame(animRef.current), [])
 
   useEffect(() => {
     cmd.zoom = zoom
@@ -261,18 +385,53 @@ export function Timeline() {
     goToDay(today, 0.28, false)
   }, [goToDay, today, view.w])
 
-  // -- pinch / cmd-scroll zoom ----------------------------------------------
+  // -- wheel: pinch/cmd zoom, and panning ------------------------------------
   useEffect(() => {
     const el = scrollerRef.current
     if (!el) return
+
     const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey && !e.metaKey) return
+      stopScrollAnimation()
+      // Pinch on a trackpad arrives as a wheel event with ctrlKey set.
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        zoom(ppdRef.current * Math.exp(-e.deltaY * 0.0125), e.clientX)
+        return
+      }
+
+      // WebKit locks a trackpad gesture to whichever axis dominates, so a
+      // diagonal swipe only ever moves one way. The deltas themselves carry
+      // both axes, so applying them ourselves restores free diagonal panning.
+      // Momentum survives because macOS keeps delivering wheel events through
+      // the inertia phase - we're just choosing where they land.
+      let dx = e.deltaX
+      let dy = e.deltaY
+      if (e.deltaMode === 1) {
+        // DOM_DELTA_LINE, typically a physical mouse wheel.
+        dx *= 16
+        dy *= 16
+      } else if (e.deltaMode === 2) {
+        dx *= el.clientWidth
+        dy *= el.clientHeight
+      }
+      // A mouse with no horizontal wheel pans sideways with shift held.
+      if (e.shiftKey && dx === 0) {
+        dx = dy
+        dy = 0
+      }
+      if (dx === 0 && dy === 0) return
+
       e.preventDefault()
-      zoom(ppdRef.current * Math.exp(-e.deltaY * 0.0125), e.clientX)
+      el.scrollTo({
+        left: el.scrollLeft + dx,
+        top: el.scrollTop + dy,
+        behavior: 'instant',
+      })
     }
+
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [zoom])
+  }, [zoom, stopScrollAnimation])
 
   // -- visible ranges --------------------------------------------------------
   const { majorTicks, minorTicks } = useMemo(() => {
@@ -312,16 +471,57 @@ export function Timeline() {
       const y2 = (b.index + 0.5) * rowH
 
       // Standard Gantt elbow; route around when the successor starts too early.
-      const d =
-        x2 - x1 > 22
-          ? `M${x1},${y1} H${x1 + 11} V${y2} H${x2 - 6}`
-          : `M${x1},${y1} H${x1 + 11} V${y1 + (y2 > y1 ? rowH / 2 : -rowH / 2)} ` +
-            `H${x2 - 17} V${y2} H${x2 - 6}`
+      const tip = x2 - DEP_HEAD
+      const pts: Pt[] =
+        tip - x1 > DEP_STUB + 6
+          ? [
+              [x1, y1],
+              [x1 + DEP_STUB, y1],
+              [x1 + DEP_STUB, y2],
+              [tip, y2],
+            ]
+          : (() => {
+              const midY = y1 + (y2 > y1 ? rowH / 2 : -rowH / 2)
+              return [
+                [x1, y1],
+                [x1 + DEP_STUB, y1],
+                [x1 + DEP_STUB, midY],
+                [x2 - DEP_BACK, midY],
+                [x2 - DEP_BACK, y2],
+                [tip, y2],
+              ] as Pt[]
+            })()
 
-      out.push({ id: dep.id, d, head: `M${x2 - 6},${y2 - 4} L${x2},${y2} L${x2 - 6},${y2 + 4} Z` })
+      out.push({
+        id: dep.id,
+        d: roundedPolyline(pts, DEP_RADIUS),
+        head: `M${tip},${y2 - 4.5} L${x2 - 0.5},${y2} L${tip},${y2 + 4.5} Z`,
+      })
     }
     return out
   }, [deps, geo, ppd, sidebarWidth, rowH, view.scrollLeft, view.w, firstRow, lastRow])
+
+  /**
+   * Rows whose bar sits entirely off the left or right of the canvas. Computed
+   * here rather than in Row so the rows stay memoised - these depend on scroll
+   * position, which would otherwise re-render every row on every frame.
+   */
+  const offscreen = useMemo(() => {
+    const viewL = view.scrollLeft + sidebarWidth
+    const viewR = view.scrollLeft + view.w
+    const out: { id: string; title: string; index: number; left: boolean; day: number }[] = []
+    for (let i = firstRow; i < lastRow; i++) {
+      const r = rows[i]
+      if (r?.kind !== 'item' || !r.span) continue
+      const x = sidebarWidth + dayToX(r.span.startDay, ppd)
+      const w = Math.max(6, (r.span.endDay + 1 - r.span.startDay) * ppd)
+      const off = x + w < viewL ? true : x > viewR ? false : null
+      if (off !== null) {
+        out.push({ id: r.id, title: r.item.title, index: i, left: off, day: r.span.startDay })
+      }
+    }
+    return out
+  }, [rows, firstRow, lastRow, view.scrollLeft, view.w, ppd, sidebarWidth])
 
   // -- drag helpers ----------------------------------------------------------
   const showTip = (clientX: number, clientY: number, text: string) => {
@@ -333,6 +533,31 @@ export function Timeline() {
   }
   const hideTip = () => {
     if (tipRef.current) tipRef.current.style.display = 'none'
+  }
+
+  /**
+   * Vertical rule at a bar edge with its date, for lining a block up against
+   * the others. The label flips to the far side for a start edge so it never
+   * sits on top of the block it belongs to.
+   */
+  const showGuide = (contentX: number, rowIndex: number, text: string, isStart: boolean) => {
+    const g = guideRef.current
+    if (g) {
+      g.style.display = 'block'
+      g.style.left = `${contentX}px`
+    }
+    const l = edgeLabelRef.current
+    if (l) {
+      l.style.display = 'block'
+      l.style.left = `${contentX}px`
+      l.style.top = `${rowIndex * rowH + rowH / 2}px`
+      l.className = 'edge-label' + (isStart ? ' start' : '')
+      l.textContent = text
+    }
+  }
+  const hideGuide = () => {
+    if (guideRef.current) guideRef.current.style.display = 'none'
+    if (edgeLabelRef.current) edgeLabelRef.current.style.display = 'none'
   }
 
   const spanLabel = (a: number, b: number, milestone: boolean) =>
@@ -347,6 +572,18 @@ export function Timeline() {
   const hitRowAt = (clientX: number, clientY: number) =>
     (document.elementFromPoint(clientX, clientY)?.closest('[data-item-id]') ??
       null) as HTMLElement | null
+
+  /** Which bars a marquee rectangle (in layer coordinates) covers. */
+  const marqueeHits = (x0: number, y0: number, x1: number, y1: number) => {
+    const hits: string[] = []
+    for (const [id, g] of geo) {
+      const bx0 = sidebarWidth + dayToX(g.span.startDay, ppd)
+      const bx1 = sidebarWidth + dayToX(g.span.endDay + 1, ppd)
+      const by0 = g.index * rowH
+      if (bx1 >= x0 && bx0 <= x1 && by0 + rowH >= y0 && by0 <= y1) hits.push(id)
+    }
+    return hits
+  }
 
   /** Client coords → coordinates inside the rows layer. */
   const toLayer = (clientX: number, clientY: number) => {
@@ -373,8 +610,10 @@ export function Timeline() {
   // -- pointer down ----------------------------------------------------------
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return
+    stopScrollAnimation()
     const target = e.target as HTMLElement
     if (target.closest('.title-input') || target.closest('.disclosure')) return
+    if (target.closest('.jump')) return
 
     // Removing a dependency: click its line.
     const depHit = target.closest('[data-dep-id]') as HTMLElement | null
@@ -384,14 +623,21 @@ export function Timeline() {
     }
 
     const sw0 = sidebarRef.current
-    const startMarquee = () => {
+    const startMarquee = (additive: boolean) => {
       const p = toLayer(e.clientX, e.clientY)
       const box = document.createElement('div')
       box.className = 'marquee'
       box.style.left = `${p.x}px`
       box.style.top = `${p.y}px`
       layerRef.current?.appendChild(box)
-      dragRef.current = { ...blank(e), mode: 'marquee', ghost: box, anchorDay: p.x, origStart: p.y }
+      dragRef.current = {
+        ...blank(e),
+        mode: 'marquee',
+        ghost: box,
+        anchorDay: p.x,
+        origStart: p.y,
+        baseSelection: additive ? selection : [],
+      }
       try {
         ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
       } catch {
@@ -401,12 +647,11 @@ export function Timeline() {
 
     const rowEl = target.closest('[data-row-index]') as HTMLElement | null
     if (!rowEl) {
-      // Empty space below the last row: still a valid place to start a marquee.
-      if ((e.shiftKey || e.metaKey) && e.clientX - (scrollerRef.current?.getBoundingClientRect().left ?? 0) > sw0) {
-        startMarquee()
-      } else {
-        select([])
-      }
+      // Empty space below the last row is still a valid place to start one.
+      const overCanvas =
+        e.clientX - (scrollerRef.current?.getBoundingClientRect().left ?? 0) > sw0
+      if (overCanvas) startMarquee(e.shiftKey)
+      else select([])
       return
     }
     const kind = rowEl.dataset.rowKind
@@ -417,6 +662,11 @@ export function Timeline() {
     if (kind === 'new') {
       e.preventDefault()
       newItemIn(rowEl.dataset.laneId || null, rowEl.dataset.status || undefined)
+      return
+    }
+    if (kind === 'new-lane') {
+      e.preventDefault()
+      setEditingLane(createLane('New lane'))
       return
     }
     if (target.closest('[data-group-add]')) {
@@ -476,11 +726,15 @@ export function Timeline() {
       const row = rows[Number(rowEl.dataset.rowIndex)]
       if (!items[itemId] || !row || row.kind !== 'item' || !row.span) return
 
-      if (e.shiftKey || e.metaKey) toggleSelect(itemId)
-      else if (!selectionSet.has(itemId)) select([itemId])
-
       const handle = (target.closest('[data-handle]') as HTMLElement | null)?.dataset.handle
       const mode = (handle as 'start' | 'end' | undefined) ?? 'move'
+
+      // Grabbing an edge is a date edit, not a pick - selecting the block there
+      // would swap the detail panel out from under you mid-drag.
+      if (mode === 'move') {
+        if (e.shiftKey || e.metaKey) toggleSelect(itemId)
+        else if (!selectionSet.has(itemId)) select([itemId])
+      }
 
       // A parent whose span is rolled up from children moves the whole subtree,
       // as does an explicit shift-drag.
@@ -504,14 +758,18 @@ export function Timeline() {
         origWidth: barEl.offsetWidth,
         finalStart: row.span.startDay,
         finalEnd: row.span.endDay,
+        sourceIndex: Number(rowEl.dataset.rowIndex),
       }
+      // The dragged bars must not intercept hit-testing for the row underneath.
+      for (const el of els) el.style.pointerEvents = 'none'
       capture()
       return
     }
 
-    // 5. Empty canvas: modifier drags a marquee, plain drag creates an item.
-    if (e.shiftKey || e.metaKey) {
-      startMarquee()
+    // 5. Empty canvas: dragging sweeps out a selection, as it does in Notion.
+    //    Holding cmd drags out a new item instead.
+    if (!e.metaKey) {
+      startMarquee(e.shiftKey)
       return
     }
 
@@ -553,11 +811,32 @@ export function Timeline() {
   // -- pointer move ----------------------------------------------------------
   const onPointerMove = (e: React.PointerEvent) => {
     const d = dragRef.current
-    if (!d) return
+    if (!d) {
+      const h = (e.target as HTMLElement).closest('[data-handle]') as HTMLElement | null
+      const barEl = h?.closest('[data-bar-id]') as HTMLElement | null
+      const hovered = barEl?.dataset.barId ? geo.get(barEl.dataset.barId) : undefined
+      if (h && barEl && hovered) {
+        const isStart = h.dataset.handle === 'start'
+        showGuide(
+          isStart ? barEl.offsetLeft : barEl.offsetLeft + barEl.offsetWidth,
+          hovered.index,
+          formatDate(dayToIso(isStart ? hovered.span.startDay : hovered.span.endDay)),
+          isStart,
+        )
+      } else {
+        hideGuide()
+      }
+      return
+    }
     const dx = e.clientX - d.startClientX
     const dy = e.clientY - d.startClientY
     if (!d.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return
-    d.moved = true
+    if (!d.moved) {
+      d.moved = true
+      // Lock to whichever way the drag set off. Re-deciding mid-gesture makes
+      // the bar feel like it's fighting you, so this sticks until pointerup.
+      d.axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y'
+    }
 
     const perDay = ppdRef.current
     const sw = sidebarRef.current
@@ -584,11 +863,26 @@ export function Timeline() {
 
     if (d.mode === 'marquee') {
       const p = toLayer(e.clientX, e.clientY)
+      const x0 = Math.min(d.anchorDay, p.x)
+      const y0 = Math.min(d.origStart, p.y)
+      const x1 = Math.max(d.anchorDay, p.x)
+      const y1 = Math.max(d.origStart, p.y)
       const box = d.ghost!
-      box.style.left = `${Math.min(d.anchorDay, p.x)}px`
-      box.style.top = `${Math.min(d.origStart, p.y)}px`
-      box.style.width = `${Math.abs(p.x - d.anchorDay)}px`
-      box.style.height = `${Math.abs(p.y - d.origStart)}px`
+      box.style.left = `${x0}px`
+      box.style.top = `${y0}px`
+      box.style.width = `${x1 - x0}px`
+      box.style.height = `${y1 - y0}px`
+
+      // Select as we sweep, so it's obvious what's being caught. Only push to
+      // the store when the set actually changes - otherwise every pointermove
+      // would re-render the whole canvas.
+      const hits = marqueeHits(x0, y0, x1, y1)
+      const next = d.baseSelection.length ? [...new Set([...d.baseSelection, ...hits])] : hits
+      const key = next.join(',')
+      if (key !== d.lastHits) {
+        d.lastHits = key
+        select(next)
+      }
       return
     }
 
@@ -624,27 +918,63 @@ export function Timeline() {
       return
     }
 
-    if (d.mode === 'move') {
+    if (d.mode === 'move' && d.axis === 'y') {
+      // Re-ordering: the dates are left exactly as they were, and the bar stays
+      // on its own row. The drop line is the only thing that moves, so nothing
+      // jumps around until the drop actually lands.
+      layerRef.current?.querySelectorAll('.drop-line').forEach((n) => n.remove())
+      d.dropTarget = null
+
+      const layerRect = layerRef.current?.getBoundingClientRect()
+      if (layerRect) {
+        // Row geometry is uniform, so arithmetic beats hit-testing here.
+        const raw = (e.clientY - layerRect.top) / rowH
+        const idx = Math.max(0, Math.min(rows.length - 1, Math.floor(raw)))
+        const over = rows[idx]
+        const moving = new Set(d.ids)
+        if (over?.kind === 'item' && !moving.has(over.id) && idx !== d.sourceIndex) {
+          const position = raw - Math.floor(raw) < 0.5 ? 'before' : 'after'
+          d.dropTarget = { id: over.id, position }
+          const line = document.createElement('div')
+          line.className = 'drop-line'
+          line.style.top = `${(idx + (position === 'after' ? 1 : 0)) * rowH - 1}px`
+          layerRef.current?.appendChild(line)
+        }
+      }
+
+      showTip(
+        e.clientX,
+        e.clientY,
+        d.dropTarget
+          ? `${d.dropTarget.position === 'before' ? 'Above' : 'Below'} “${
+              items[d.dropTarget.id]?.title || 'Untitled'
+            }”`
+          : 'Drag over a row',
+      )
+    } else if (d.mode === 'move') {
       const ns = toDay(d.origStart + dx / perDay)
       d.finalStart = ns
       d.finalEnd = ns + (d.origEnd - d.origStart)
-      const px = (ns - d.origStart) * perDay
-      for (const el of d.els) el.style.transform = `translateX(${px}px)`
+      for (const el of d.els) el.style.transform = `translateX(${(ns - d.origStart) * perDay}px)`
       showTip(e.clientX, e.clientY, spanLabel(d.finalStart, d.finalEnd, d.origStart === d.origEnd))
     } else if (d.mode === 'start') {
       const ns = Math.min(toDay(d.origStart + dx / perDay), d.origEnd)
       d.finalStart = ns
       d.finalEnd = d.origEnd
+      const left = d.origLeft + (ns - d.origStart) * perDay
       if (d.primary) {
-        d.primary.style.left = `${d.origLeft + (ns - d.origStart) * perDay}px`
+        d.primary.style.left = `${left}px`
         d.primary.style.width = `${Math.max(6, (d.origEnd + 1 - ns) * perDay)}px`
       }
+      showGuide(left, d.sourceIndex, formatDate(dayToIso(ns)), true)
       showTip(e.clientX, e.clientY, spanLabel(d.finalStart, d.finalEnd, false))
     } else if (d.mode === 'end') {
       const ne = Math.max(toDay(d.origEnd + dx / perDay), d.origStart)
       d.finalStart = d.origStart
       d.finalEnd = ne
-      if (d.primary) d.primary.style.width = `${Math.max(6, (ne + 1 - d.origStart) * perDay)}px`
+      const width = Math.max(6, (ne + 1 - d.origStart) * perDay)
+      if (d.primary) d.primary.style.width = `${width}px`
+      showGuide(d.origLeft + width, d.sourceIndex, formatDate(dayToIso(ne)), false)
       showTip(e.clientX, e.clientY, spanLabel(d.finalStart, d.finalEnd, false))
     } else if (d.mode === 'create') {
       const ns = toDay(d.anchorDay + dx / perDay)
@@ -665,6 +995,7 @@ export function Timeline() {
     const d = dragRef.current
     dragRef.current = null
     hideTip()
+    hideGuide()
     if (!d) return
     try {
       ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
@@ -687,31 +1018,23 @@ export function Timeline() {
     }
 
     // Restore anything we mutated directly so React's DOM record stays truthful.
-    for (const el of d.els) el.style.transform = ''
+    for (const el of d.els) {
+      el.style.transform = ''
+      el.style.pointerEvents = ''
+    }
     if (d.primary && (d.mode === 'start' || d.mode === 'end')) {
       d.primary.style.left = `${d.origLeft}px`
       d.primary.style.width = `${d.origWidth}px`
     }
 
-    if (!d.moved) return
-
-    if (d.mode === 'marquee') {
-      const box = d.ghost!
-      const x0 = parseFloat(box.style.left)
-      const y0 = parseFloat(box.style.top)
-      const x1 = x0 + parseFloat(box.style.width || '0')
-      const y1 = y0 + parseFloat(box.style.height || '0')
-      const hits: string[] = []
-      for (const [id, g] of geo) {
-        const bx0 = sidebarWidth + dayToX(g.span.startDay, ppd)
-        const bx1 = sidebarWidth + dayToX(g.span.endDay + 1, ppd)
-        const by0 = g.index * rowH
-        const by1 = by0 + rowH
-        if (bx1 >= x0 && bx0 <= x1 && by1 >= y0 && by0 <= y1) hits.push(id)
-      }
-      select(hits)
+    if (!d.moved) {
+      // A plain click on empty canvas clears the selection; shift-click keeps it.
+      if (d.mode === 'marquee') select(d.baseSelection)
       return
     }
+
+    // The sweep already applied the selection live; nothing left to do.
+    if (d.mode === 'marquee') return
 
     if (d.mode === 'reorder') {
       if (d.dropTarget) reorderItem(d.ids[0], d.dropTarget.id, d.dropTarget.position)
@@ -733,7 +1056,7 @@ export function Timeline() {
 
     const delta = d.finalStart - d.origStart
     commit()
-    if (d.mode === 'move') {
+    if (d.mode === 'move' && delta !== 0) {
       updateItems(
         d.ids.map((id) => {
           const it = items[id]
@@ -763,18 +1086,84 @@ export function Timeline() {
         true,
       )
     }
+    if (d.mode === 'move' && d.dropTarget) {
+      reorderItem(d.ids[0], d.dropTarget.id, d.dropTarget.position, true)
+    }
     cascade()
   }
 
+  const onContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault()
+    const target = e.target as HTMLElement
+    const rowEl = target.closest('[data-row-index]') as HTMLElement | null
+    if (!rowEl) {
+      setMenu(null)
+      return
+    }
+    const kind = rowEl.dataset.rowKind
+    const itemId = rowEl.dataset.itemId
+
+    // A bar or its sidebar row acts on the item; bare canvas offers to create.
+    const onItem = !!itemId && (!!target.closest('[data-bar-id]') || !!target.closest('.side'))
+    if (onItem) {
+      if (!selectionSet.has(itemId!)) select([itemId!])
+      setMenu({ x: e.clientX, y: e.clientY, target: { kind: 'item', id: itemId! } })
+      return
+    }
+    if (kind === 'group') {
+      setMenu({ x: e.clientX, y: e.clientY, target: { kind: 'group', id: rowEl.dataset.groupId! } })
+      return
+    }
+
+    const rect = layerRef.current!.getBoundingClientRect()
+    const day = snapDay(
+      Math.round(xToDay(e.clientX - rect.left - sidebarRef.current, ppdRef.current)),
+      tierFor(ppdRef.current).snap,
+    )
+    const row = rows[Number(rowEl.dataset.rowIndex)]
+    const laneId =
+      row?.kind === 'item'
+        ? row.item.laneId
+        : row?.kind === 'new'
+          ? row.laneId
+          : (rowEl.dataset.groupId ?? null)
+    setMenu({ x: e.clientX, y: e.clientY, target: { kind: 'empty', laneId, day } })
+  }
+
   const onDoubleClick = (e: React.MouseEvent) => {
-    const rowEl = (e.target as HTMLElement).closest('[data-row-index]') as HTMLElement | null
-    const id = rowEl?.dataset.itemId
-    if (id) setEditing(id)
+    const target = e.target as HTMLElement
+    const rowEl = target.closest('[data-row-index]') as HTMLElement | null
+    if (!rowEl) return
+    const id = rowEl.dataset.itemId
+    if (id && (target.closest('[data-bar-id]') || target.closest('.side'))) {
+      setEditing(id)
+      return
+    }
+    // Bare canvas: drag is a selection now, so double-click is how you create.
+    const rect = layerRef.current!.getBoundingClientRect()
+    const day = snapDay(
+      Math.round(xToDay(e.clientX - rect.left - sidebarRef.current, ppdRef.current)),
+      tierFor(ppdRef.current).snap,
+    )
+    const row = rows[Number(rowEl.dataset.rowIndex)]
+    const laneId =
+      row?.kind === 'item' ? row.item.laneId : row?.kind === 'new' ? row.laneId : null
+    const newId = createItem({
+      laneId,
+      parentId: row?.kind === 'item' ? row.item.parentId : null,
+      start: { date: dayToIso(day), precision: 'day' },
+      end: { date: dayToIso(day + 6), precision: 'day' },
+    })
+    setEditing(newId)
   }
 
   // -- render ----------------------------------------------------------------
   const todayX = sidebarWidth + dayToX(today, ppd)
-  const todayW = Math.max(2, ppd)
+  // Shade today's column exactly when the grid is drawing individual days.
+  // Tying this to the tier rather than a magic pixel width keeps the two from
+  // disagreeing - a hand-picked threshold left a band of zoom where you could
+  // see day cells but today wasn't shaded.
+  const showTodayBand = tier.minor === 'day'
 
   return (
     <div className="timeline">
@@ -785,11 +1174,18 @@ export function Timeline() {
         >
           {/* ---- header ---- */}
           <div className="head" style={{ height: HEADER_HEIGHT }}>
-            <div className="head-corner" style={{ width: sidebarWidth }}>
+            <div
+              className={'head-corner' + (sidebarWidth ? '' : ' collapsed')}
+              style={{ width: sidebarWidth }}
+            >
               <span className="head-col name">Name</span>
-              {columns.includes('status') && <span className="head-col" style={{ width: 88 }}>Status</span>}
-              {columns.includes('dates') && <span className="head-col" style={{ width: 88 }}>{COLUMN_LABELS.dates}</span>}
-              {columns.includes('span') && <span className="head-col" style={{ width: 52 }}>{COLUMN_LABELS.span}</span>}
+              {(['status', 'dates', 'span'] as const).map((c) =>
+                columns.includes(c) ? (
+                  <span key={c} className="head-col" style={{ width: COLUMN_WIDTH[c] }}>
+                    {COLUMN_LABELS[c]}
+                  </span>
+                ) : null,
+              )}
             </div>
             <div className="head-today" style={{ left: todayX }} />
             {majorTicks.map((t) => (
@@ -834,9 +1230,18 @@ export function Timeline() {
                 style={{ left: sidebarWidth + dayToX(t.day, ppd), width: (t.end - t.day) * ppd }}
               />
             ))}
-            {ppd >= 3 && <div className="today-band" style={{ left: todayX, width: todayW }} />}
+            {showTodayBand && (
+              <div className="today-band" style={{ left: todayX, width: ppd }} />
+            )}
             <div className="today-line" style={{ left: todayX }} />
           </div>
+
+          {/* The per-row sidebar cells stop at the last row, so this carries the
+              column's background and rule down through the empty space below. */}
+          <div
+            className="side-backdrop"
+            style={{ width: sidebarWidth, height: rowsHeight + 120, display: sidebarWidth ? undefined : 'none' }}
+          />
 
           {/* ---- rows ---- */}
           <div
@@ -848,7 +1253,45 @@ export function Timeline() {
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
             onDoubleClick={onDoubleClick}
+            onContextMenu={onContextMenu}
+            onPointerLeave={hideGuide}
           >
+            {/* Pinned by `position: sticky` rather than positioned from
+                scrollLeft, so the markers can't drift when scroll state lags a
+                frame - the same trick the header and table column already use. */}
+            <div className="jump-layer">
+            {offscreen.map((o) => (
+              <button
+                key={o.id}
+                className={'jump ' + (o.left ? 'jump-left' : 'jump-right')}
+                style={{
+                  left: o.left ? sidebarWidth + 6 : view.w - 6,
+                  top: o.index * rowH + (rowH - 20) / 2,
+                }}
+                title={`Jump to “${o.title || 'Untitled'}”`}
+                // Scroll to it without selecting - jumping is navigation, and
+                // hijacking the selection also swaps the detail panel.
+                onClick={() => cmd.goToDay(o.day, 0.25)}
+              >
+                {/* An SVG rather than a ‹ glyph: text sits on its baseline and
+                    reads low, where a block-level svg centres exactly. */}
+                {o.left && (
+                  <svg className="jump-chev" viewBox="0 0 12 12" aria-hidden>
+                    <path d="M7.5 2.5 4 6l3.5 3.5" />
+                  </svg>
+                )}
+                <span className="jump-title">{o.title || 'Untitled'}</span>
+                {!o.left && (
+                  <svg className="jump-chev" viewBox="0 0 12 12" aria-hidden>
+                    <path d="M4.5 2.5 8 6l-3.5 3.5" />
+                  </svg>
+                )}
+              </button>
+            ))}
+            </div>
+
+            <div className="edge-guide" ref={guideRef} />
+            <div className="edge-label" ref={edgeLabelRef} />
             {visibleRows.map((row, i) => (
               <TimelineRow
                 key={row.key}
@@ -859,7 +1302,11 @@ export function Timeline() {
                 ppd={ppd}
                 sidebarWidth={sidebarWidth}
                 selected={row.kind === 'item' && selectionSet.has(row.id)}
-                editing={row.kind === 'item' && editingId === row.id}
+                editing={
+                  row.kind === 'item'
+                    ? editingId === row.id
+                    : row.kind === 'group' && editingLaneId === row.id
+                }
                 columns={columns}
                 linking={linkingActive}
               />
@@ -881,8 +1328,9 @@ export function Timeline() {
         </div>
       </div>
 
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
       <div className="drag-tip" ref={tipRef} />
-      <SidebarResizer />
+      {sidebarOpen && <SidebarResizer />}
       {!rows.some((r) => r.kind === 'item') && (
         <div className="empty-state">
           <p>Nothing here yet.</p>

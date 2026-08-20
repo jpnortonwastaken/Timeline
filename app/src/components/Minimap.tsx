@@ -15,15 +15,15 @@ const PAD_DAYS = 120
 export function Minimap() {
   const items = useStore((s) => s.items)
   const lanes = useStore((s) => s.lanes)
-  const groupBy = useStore((s) => s.groupBy)
+  const noLaneCollapsed = useStore((s) => s.noLaneCollapsed)
   const viewFrom = useStore((s) => s.viewFrom)
   const viewTo = useStore((s) => s.viewTo)
   const ref = useRef<HTMLDivElement>(null)
   const drag = useRef<{ grabOffsetDays: number } | null>(null)
 
   const { rows } = useMemo(
-    () => flatten({ items, lanes, groupBy, search: '' }),
-    [items, lanes, groupBy],
+    () => flatten({ items, lanes, search: '', noLaneCollapsed }),
+    [items, lanes, noLaneCollapsed],
   )
 
   const bars = useMemo(() => {

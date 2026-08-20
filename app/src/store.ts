@@ -4,7 +4,6 @@ import type {
   Density,
   Dependency,
   DependencyType,
-  GroupBy,
   Item,
   ItemId,
   Lane,
@@ -12,6 +11,7 @@ import type {
   PersistedState,
   Snapshot,
   Status,
+  ThemeMode,
 } from './types'
 import { clampPpd, dayToIso, isoToDay, todayDay } from './lib/time'
 import { relax, wouldCycle } from './lib/deps'
@@ -29,11 +29,13 @@ export interface State extends Snapshot {
   ppd: number
   autoShift: boolean
   showMinimap: boolean
+  /** Collapse state for the synthetic "No lane" group, which has no Lane record. */
+  noLaneCollapsed: boolean
   sidebarWidth: number
-  groupBy: GroupBy
+  sidebarOpen: boolean
   density: Density
   visibleColumns: string[]
-  theme: 'light' | 'dark'
+  themeMode: ThemeMode
 
   /** Visible day range, republished by Timeline on scroll. Not persisted. */
   viewFrom: number
@@ -41,6 +43,7 @@ export interface State extends Snapshot {
 
   selection: ItemId[]
   editingId: ItemId | null
+  editingLaneId: LaneId | null
   search: string
   detailOpen: boolean
 
@@ -59,6 +62,8 @@ export interface Actions {
   updateItem: (id: ItemId, patch: Partial<Item>, live?: boolean) => void
   updateItems: (patches: { id: ItemId; patch: Partial<Item> }[], live?: boolean) => void
   deleteItems: (ids: ItemId[]) => void
+  /** Copy an item, its whole subtree, and any dependencies internal to it. */
+  duplicateItems: (ids: ItemId[]) => void
   indent: (id: ItemId) => void
   outdent: (id: ItemId) => void
 
@@ -69,7 +74,12 @@ export interface Actions {
   cascade: () => void
 
   // ordering
-  reorderItem: (id: ItemId, targetId: ItemId, position: 'before' | 'after' | 'child') => void
+  reorderItem: (
+    id: ItemId,
+    targetId: ItemId,
+    position: 'before' | 'after' | 'child',
+    live?: boolean,
+  ) => void
 
   // lanes
   createLane: (name: string) => LaneId
@@ -79,10 +89,11 @@ export interface Actions {
   // view
   setPpd: (ppd: number) => void
   setSidebarWidth: (w: number) => void
-  setGroupBy: (g: GroupBy) => void
+  toggleSidebar: () => void
   setDensity: (d: Density) => void
   toggleColumn: (c: string) => void
-  toggleTheme: () => void
+  setThemeMode: (m: ThemeMode) => void
+  cycleTheme: () => void
   setSearch: (s: string) => void
   toggleAutoShift: () => void
   toggleMinimap: () => void
@@ -97,6 +108,7 @@ export interface Actions {
   select: (ids: ItemId[]) => void
   toggleSelect: (id: ItemId) => void
   setEditing: (id: ItemId | null) => void
+  setEditingLane: (id: LaneId | null) => void
   setViewRange: (from: number, to: number) => void
   setDetailOpen: (open: boolean) => void
 
@@ -151,22 +163,22 @@ export const useStore = create<State & Actions>((set, get) => ({
   deps: initial.deps as Record<string, Dependency>,
   ppd: persisted?.ppd ?? 4.2,
   autoShift: persisted?.autoShift ?? true,
+  noLaneCollapsed: persisted?.noLaneCollapsed ?? false,
   showMinimap: persisted?.showMinimap ?? true,
   sidebarWidth: persisted?.sidebarWidth ?? 360,
-  groupBy: persisted?.groupBy ?? 'lane',
+  sidebarOpen: persisted?.sidebarOpen ?? true,
   density: persisted?.density ?? 'normal',
   visibleColumns: persisted?.visibleColumns ?? ['dates', 'span'],
-  theme:
-    (localStorage.getItem('timeline.theme') as 'light' | 'dark') ??
-    (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
+  themeMode: (localStorage.getItem('timeline.theme') as ThemeMode) ?? 'auto',
 
   viewFrom: todayDay() - 180,
   viewTo: todayDay() + 180,
 
   selection: [],
   editingId: null,
+  editingLaneId: null,
   search: '',
-  detailOpen: false,
+  detailOpen: true,
 
   past: [],
   future: [],
@@ -275,6 +287,50 @@ export const useStore = create<State & Actions>((set, get) => ({
     })
   },
 
+  duplicateItems: (ids) => {
+    get().commit()
+    set((s) => {
+      const items = { ...s.items }
+      const deps = { ...s.deps }
+      const now = new Date().toISOString()
+      const selection: ItemId[] = []
+
+      for (const rootId of ids) {
+        const root = s.items[rootId]
+        if (!root) continue
+        const clan = subtree(s.items, rootId)
+        const idMap = new Map<ItemId, ItemId>()
+        for (const oldId of clan) idMap.set(oldId, nanoid(8))
+
+        for (const oldId of clan) {
+          const src = s.items[oldId]
+          const nid = idMap.get(oldId)!
+          items[nid] = {
+            ...src,
+            id: nid,
+            parentId: src.parentId ? idMap.get(src.parentId) ?? src.parentId : null,
+            // Fractional order drops the copy in right after the original
+            // without having to renumber every sibling below it.
+            order: oldId === rootId ? src.order + 0.5 : src.order,
+            createdAt: now,
+            updatedAt: now,
+          }
+        }
+
+        // Links wholly inside the copied subtree come along; links crossing its
+        // boundary do not, since duplicating shouldn't silently add constraints.
+        for (const d of Object.values(s.deps)) {
+          if (idMap.has(d.fromId) && idMap.has(d.toId)) {
+            const did = nanoid(8)
+            deps[did] = { ...d, id: did, fromId: idMap.get(d.fromId)!, toId: idMap.get(d.toId)! }
+          }
+        }
+        selection.push(idMap.get(rootId)!)
+      }
+      return { items, deps, selection }
+    })
+  },
+
   /** Make an item a child of its previous sibling. */
   indent: (id) => {
     const s = get()
@@ -342,7 +398,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   },
 
   // -- ordering --------------------------------------------------------------
-  reorderItem: (id, targetId, position) => {
+  reorderItem: (id, targetId, position, live) => {
     const s = get()
     const me = s.items[id]
     const target = s.items[targetId]
@@ -351,9 +407,9 @@ export const useStore = create<State & Actions>((set, get) => ({
     if (subtree(s.items, id).has(targetId)) return
 
     const parentId = position === 'child' ? targetId : target.parentId
-    const laneId = position === 'child' ? target.laneId : target.laneId
+    const laneId = target.laneId
 
-    get().commit()
+    if (!live) get().commit()
     set((st) => {
       const siblings = Object.values(st.items)
         .filter((i) => i.id !== id && i.parentId === parentId && i.laneId === laneId)
@@ -409,7 +465,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   // -- view ------------------------------------------------------------------
   setPpd: (ppd) => set({ ppd: clampPpd(ppd) }),
   setSidebarWidth: (w) => set({ sidebarWidth: Math.min(640, Math.max(180, w)) }),
-  setGroupBy: (groupBy) => set({ groupBy }),
+  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setDensity: (density) => set({ density }),
   toggleColumn: (c) =>
     set((s) => ({
@@ -417,11 +473,16 @@ export const useStore = create<State & Actions>((set, get) => ({
         ? s.visibleColumns.filter((x) => x !== c)
         : [...s.visibleColumns, c],
     })),
-  toggleTheme: () =>
+  setThemeMode: (themeMode) => {
+    localStorage.setItem('timeline.theme', themeMode)
+    set({ themeMode })
+  },
+  // For the native menu item, which is a single command rather than a picker.
+  cycleTheme: () =>
     set((s) => {
-      const theme = s.theme === 'dark' ? 'light' : 'dark'
-      localStorage.setItem('timeline.theme', theme)
-      return { theme }
+      const next: ThemeMode = s.themeMode === 'auto' ? 'light' : s.themeMode === 'light' ? 'dark' : 'auto'
+      localStorage.setItem('timeline.theme', next)
+      return { themeMode: next }
     }),
   setSearch: (search) => set({ search }),
   toggleAutoShift: () => set((s) => ({ autoShift: !s.autoShift })),
@@ -432,7 +493,11 @@ export const useStore = create<State & Actions>((set, get) => ({
     set((s) => ({ items: { ...s.items, [id]: { ...s.items[id], collapsed: !s.items[id].collapsed } } })),
 
   toggleLaneCollapse: (id) =>
-    set((s) => ({ lanes: { ...s.lanes, [id]: { ...s.lanes[id], collapsed: !s.lanes[id].collapsed } } })),
+    set((s) =>
+      id === '__none'
+        ? { noLaneCollapsed: !s.noLaneCollapsed }
+        : { lanes: { ...s.lanes, [id]: { ...s.lanes[id], collapsed: !s.lanes[id].collapsed } } },
+    ),
 
   expandAll: () =>
     set((s) => {
@@ -440,7 +505,7 @@ export const useStore = create<State & Actions>((set, get) => ({
       for (const k of Object.keys(items)) items[k] = { ...items[k], collapsed: false }
       const lanes = { ...s.lanes }
       for (const k of Object.keys(lanes)) lanes[k] = { ...lanes[k], collapsed: false }
-      return { items, lanes }
+      return { items, lanes, noLaneCollapsed: false }
     }),
 
   collapseAll: () =>
@@ -449,18 +514,22 @@ export const useStore = create<State & Actions>((set, get) => ({
       for (const k of Object.keys(items)) items[k] = { ...items[k], collapsed: true }
       const lanes = { ...s.lanes }
       for (const k of Object.keys(lanes)) lanes[k] = { ...lanes[k], collapsed: true }
-      return { items, lanes }
+      return { items, lanes, noLaneCollapsed: true }
     }),
 
   // -- selection -------------------------------------------------------------
-  select: (ids) => set({ selection: ids }),
+  // Closing the panel dismisses it for the current selection only - picking
+  // something else is a fresh request to see it, so the panel comes back.
+  select: (ids) => set((s) => (s.detailOpen ? { selection: ids } : { selection: ids, detailOpen: true })),
   toggleSelect: (id) =>
     set((s) => ({
       selection: s.selection.includes(id)
         ? s.selection.filter((x) => x !== id)
         : [...s.selection, id],
+      detailOpen: true,
     })),
   setEditing: (editingId) => set({ editingId }),
+  setEditingLane: (editingLaneId) => set({ editingLaneId }),
   setViewRange: (viewFrom, viewTo) =>
     set((s) => (s.viewFrom === viewFrom && s.viewTo === viewTo ? s : { viewFrom, viewTo })),
   setDetailOpen: (detailOpen) => set({ detailOpen }),
@@ -514,9 +583,10 @@ useStore.subscribe((s) => {
       deps: s.deps,
       ppd: s.ppd,
       autoShift: s.autoShift,
+      noLaneCollapsed: s.noLaneCollapsed,
       showMinimap: s.showMinimap,
       sidebarWidth: s.sidebarWidth,
-      groupBy: s.groupBy,
+      sidebarOpen: s.sidebarOpen,
       density: s.density,
       visibleColumns: s.visibleColumns,
     }

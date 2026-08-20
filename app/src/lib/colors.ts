@@ -1,4 +1,4 @@
-/** Notion's colour palette, in Notion's own order. Actual values live in CSS
+/** Notion's color palette, in Notion's own order. Actual values live in CSS
  *  (`.c-blue` etc.) so light/dark theming is handled by the stylesheet. */
 export const COLORS = [
   { id: 'gray', label: 'Gray' },

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Toolbar } from './components/Toolbar'
 import { Timeline } from './components/Timeline'
 import { DetailPanel } from './components/DetailPanel'
@@ -7,7 +7,7 @@ import { hadStoredState, useStore } from './store'
 import { isTauri, onMenuCommand, readBackup } from './lib/tauri'
 import { downloadJSON, pickAndImport } from './lib/io'
 import { flatten } from './lib/tree'
-import { addUnits, dayToIso, isoToDay, tierFor, todayDay } from './lib/time'
+import { addUnits, dayToIso, isoToDay, tierFor, todayDay, ZOOM_PRESETS } from './lib/time'
 import { cmd } from './lib/viewport'
 
 const isTyping = (t: EventTarget | null) => {
@@ -22,20 +22,33 @@ const isTyping = (t: EventTarget | null) => {
 }
 
 export default function App() {
-  const theme = useStore((s) => s.theme)
+  const themeMode = useStore((s) => s.themeMode)
   const selection = useStore((s) => s.selection)
   const showMinimap = useStore((s) => s.showMinimap)
+  const detailOpen = useStore((s) => s.detailOpen)
 
   const items = useStore((s) => s.items)
   const lanes = useStore((s) => s.lanes)
-  const groupBy = useStore((s) => s.groupBy)
   const search = useStore((s) => s.search)
+  const noLaneCollapsed = useStore((s) => s.noLaneCollapsed)
 
   const { rows, indexById } = useMemo(
-    () => flatten({ items, lanes, groupBy, search }),
-    [items, lanes, groupBy, search],
+    () => flatten({ items, lanes, search, noLaneCollapsed }),
+    [items, lanes, search, noLaneCollapsed],
   )
 
+  // "auto" tracks the system and must keep tracking it, not just sample once.
+  const [systemDark, setSystemDark] = useState(
+    () => window.matchMedia('(prefers-color-scheme: dark)').matches,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const onChange = (e: MediaQueryListEvent) => setSystemDark(e.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
+  const theme = themeMode === 'auto' ? (systemDark ? 'dark' : 'light') : themeMode
   useEffect(() => {
     document.documentElement.dataset.theme = theme
   }, [theme])
@@ -100,11 +113,15 @@ export default function App() {
         s.toggleMinimap()
         break
       case 'toggle-theme':
-        s.toggleTheme()
+        s.cycleTheme()
         break
-      case 'find':
-        document.querySelector<HTMLInputElement>('[data-search-input]')?.focus()
+      case 'find': {
+        const field = document.querySelector<HTMLInputElement>('[data-search-input]')
+        if (field) field.focus()
+        // Collapsed to an icon at this width - open it, then focus what appears.
+        else document.querySelector<HTMLButtonElement>('[data-search-toggle]')?.click()
         break
+      }
     }
   }, [])
 
@@ -129,6 +146,23 @@ export default function App() {
       if (mod && e.key.toLowerCase() === 'z') {
         e.preventDefault()
         e.shiftKey ? s.redo() : s.undo()
+        return
+      }
+      if (mod && e.key.toLowerCase() === 'd') {
+        if (s.selection.length) {
+          e.preventDefault()
+          s.duplicateItems(s.selection)
+        }
+        return
+      }
+      if (mod && e.key === '\\') {
+        e.preventDefault()
+        s.toggleSidebar()
+        return
+      }
+      if (mod && e.key === ',') {
+        e.preventDefault()
+        document.querySelector<HTMLButtonElement>('[data-settings-toggle]')?.click()
         return
       }
       if (mod && e.key.toLowerCase() === 'f') {
@@ -234,6 +268,18 @@ export default function App() {
           break
         }
 
+        // 1-6 pick a zoom preset, in the order they appear in the toolbar.
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6': {
+          const preset = ZOOM_PRESETS[Number(e.key) - 1]
+          if (preset) cmd.zoom(preset.ppd)
+          break
+        }
+
         case 'Tab':
           if (sel) {
             e.preventDefault()
@@ -252,20 +298,21 @@ export default function App() {
       <Toolbar />
       <div className="main">
         <Timeline />
-        {selection.length > 0 && <DetailPanel />}
+        {selection.length > 0 && detailOpen && <DetailPanel />}
       </div>
       {showMinimap && <Minimap />}
       <footer className="statusbar">
-        <span className="hint"><kbd>drag</kbd> canvas to create</span>
+        <span className="hint"><kbd>drag</kbd> canvas to select</span>
+        <span className="hint"><kbd>⌘</kbd>drag canvas to create</span>
         <span className="hint"><kbd>⌘</kbd>+scroll to zoom</span>
         <span className="hint"><kbd>⌥</kbd>drag for free dates</span>
         <span className="hint"><kbd>⇧</kbd>drag to move children</span>
-        <span className="hint"><kbd>⇧</kbd>drag canvas to select</span>
         <span className="hint">drag the ○ to link</span>
         <span className="hint"><kbd>T</kbd> today</span>
         <span className="hint"><kbd>E</kbd> expand all</span>
         <span className="hint"><kbd>N</kbd> new</span>
         <span className="hint"><kbd>Tab</kbd> indent</span>
+        <span className="hint">right-click for more</span>
       </footer>
     </div>
   )

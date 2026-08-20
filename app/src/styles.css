@@ -1,9 +1,9 @@
 /* ============================================================================
-   Notion-flavoured design tokens.
+   Notion-flavored design tokens.
 
    The two things that make Notion look like Notion: the warm near-black ink
-   (55, 53, 47) instead of a true grey, and the fact that almost every surface
-   is defined as a low-alpha wash of that same ink rather than its own colour.
+   (55, 53, 47) instead of a true gray, and the fact that almost every surface
+   is defined as a low-alpha wash of that same ink rather than its own color.
    Keeping that rule makes borders, hovers and fills stay in the same family.
    ========================================================================== */
 
@@ -22,12 +22,26 @@
   --divider-strong: rgba(var(--ink-rgb), 0.16);
 
   --hover: rgba(var(--ink-rgb), 0.055);
+  --row-hover: rgba(var(--ink-rgb), 0.018);
+  --row-selected: rgba(var(--ink-rgb), 0.045);
   --pressed: rgba(var(--ink-rgb), 0.09);
 
   --accent: rgb(35, 131, 226);
   --selected: rgba(35, 131, 226, 0.12);
   --weekend: rgba(var(--ink-rgb), 0.024);
-  --today-tint: rgba(35, 131, 226, 0.07);
+  --today-tint: rgba(216, 79, 71, 0.05);
+  --card-border: rgba(var(--ink-rgb), 0.13);
+
+  /* One rounding scale so buttons, cells, bars and popovers all agree. */
+  --r-xs: 5px;   /* pills, chips, checkboxes, small hit targets */
+  --r-sm: 7px;   /* buttons, inputs, menu rows, calendar cells */
+  --r-md: 9px;   /* bars, milestones, segmented trays */
+  --r-lg: 12px;  /* menus, popovers, floating surfaces */
+  --card-shadow: rgba(15, 15, 15, 0.05) 0 1px 2px;
+  --today: rgb(216, 79, 71);
+  --twig: rgba(var(--ink-rgb), 0.22);
+  --knob: rgb(140, 139, 135);
+  --knob-hover: rgb(85, 83, 77);
 
   --shadow-menu:
     rgba(15, 15, 15, 0.05) 0 0 0 1px,
@@ -35,7 +49,7 @@
     rgba(15, 15, 15, 0.2) 0 9px 24px;
   --shadow-bar: rgba(15, 15, 15, 0.12) 0 2px 5px;
 
-  /* Notion's bold colours - used solid, with white text. */
+  /* Notion's bold colors - used solid, with white text. */
   --c-gray: rgb(120, 119, 116);
   --c-brown: rgb(159, 107, 83);
   --c-orange: rgb(217, 115, 13);
@@ -73,12 +87,20 @@
   --divider-strong: rgba(255, 255, 255, 0.13);
 
   --hover: rgba(255, 255, 255, 0.055);
+  --row-hover: rgba(255, 255, 255, 0.025);
+  --row-selected: rgba(255, 255, 255, 0.06);
   --pressed: rgba(255, 255, 255, 0.09);
 
   --accent: rgb(35, 131, 226);
   --selected: rgba(35, 131, 226, 0.2);
   --weekend: rgba(255, 255, 255, 0.022);
-  --today-tint: rgba(35, 131, 226, 0.1);
+  --today-tint: rgba(223, 84, 82, 0.09);
+  --card-border: rgba(255, 255, 255, 0.16);
+  --card-shadow: rgba(0, 0, 0, 0.3) 0 1px 2px;
+  --today: rgb(223, 84, 82);
+  --twig: rgba(255, 255, 255, 0.2);
+  --knob: rgb(152, 152, 152);
+  --knob-hover: rgb(232, 232, 232);
 
   --shadow-menu:
     rgba(15, 15, 15, 0.1) 0 0 0 1px,
@@ -164,57 +186,71 @@ button { cursor: pointer; }
 
 /* The Mac app hides the title bar and overlays the traffic lights, so the
    toolbar has to leave room for them and act as the drag handle. */
-[data-tauri] .toolbar { padding-left: 82px; -webkit-app-region: drag; }
-[data-tauri] .toolbar button,
-[data-tauri] .toolbar input,
-[data-tauri] .toolbar select,
-[data-tauri] .toolbar label,
-[data-tauri] .toolbar .seg,
-[data-tauri] .toolbar details,
-[data-tauri] .toolbar summary { -webkit-app-region: no-drag; }
+/* Window dragging is done with data-tauri-drag-region on the toolbar, not
+   -webkit-app-region: that's a Chromium property and WKWebView ignores it.
+   All this rule does is leave room for the overlaid traffic lights. */
+[data-tauri] .toolbar { padding-left: 92px; }
 
 .brand { display: flex; align-items: center; gap: 7px; padding-right: 6px; }
 .brand-mark {
-  width: 16px; height: 16px; border-radius: 3px;
+  width: 16px; height: 16px; border-radius: var(--r-xs);
   background: var(--text);
   position: relative;
 }
 .brand-mark::before, .brand-mark::after {
-  content: ''; position: absolute; height: 2.5px; border-radius: 2px; background: var(--bg);
+  content: ''; position: absolute; height: 2.5px; border-radius: var(--r-xs); background: var(--bg);
 }
 .brand-mark::before { left: 3px; top: 4.5px; width: 10px; }
 .brand-mark::after { left: 5.5px; top: 9px; width: 7.5px; opacity: 0.65; }
 .brand-name { font-weight: 600; font-size: 14px; letter-spacing: -0.01em; }
 
 .tb-group { display: flex; align-items: center; gap: 6px; }
+
+/* Equal zero-basis sides put the middle group at the true centre. */
+.tb-side {
+  flex: 1 1 0; min-width: 0;
+  display: flex; align-items: center; gap: 6px;
+  /* Belt and braces behind the tier logic: content clips at the track edge
+     instead of sitting on top of the centre group. */
+  overflow: hidden;
+}
+/* ...except on the right, which hosts the settings popover. */
+.tb-right { justify-content: flex-end; overflow: visible; }
+.tb-center { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; }
 .tb-label { color: var(--text-3); font-size: 12px; margin-right: 2px; }
 .spacer { flex: 1; }
 
 /* Notion buttons are borderless; the affordance is the hover wash. */
-.btn, .menu > summary {
+.btn {
   display: inline-flex; align-items: center; gap: 4px;
   height: 28px; padding: 0 8px;
-  border: 0; border-radius: 4px;
+  border: 0; border-radius: var(--r-sm);
   background: transparent; color: var(--text-2);
   font-size: 14px; font-weight: 500; white-space: nowrap;
+  flex: 0 0 auto;
   transition: background 0.1s ease;
 }
-.btn:hover, .menu > summary:hover { background: var(--hover); }
-.btn:active { background: var(--pressed); }
+.btn:hover { background: var(--hover); }
+.btn:active, .btn.on { background: var(--pressed); }
 .btn:disabled { opacity: 0.3; cursor: default; background: transparent; }
-.btn.icon { width: 28px; padding: 0; justify-content: center; }
+.btn.icon { width: 28px; min-width: 28px; padding: 0; justify-content: center; }
 .btn.small { height: 24px; font-size: 12px; }
-.btn.danger { color: var(--c-red); width: 100%; justify-content: center; margin-top: 16px; }
+.btn.danger { color: var(--c-red); width: 100%; flex: 0 0 auto; justify-content: center; margin-top: 8px; }
 .btn.danger:hover { background: var(--t-red); }
 
-/* Segmented control, Notion's view-switcher shape. */
+/* Plain ghost buttons sitting together. The segmented control below is
+   reserved for the zoom presets, where the tray shows they're one choice. */
+.btn-group { display: flex; align-items: center; gap: 2px; }
+.btn .ui-icon { display: block; }
+
+/* Segmented control, Notion's view-switcher shape - zoom presets only. */
 .seg {
   display: flex; gap: 1px; padding: 2px;
-  background: var(--hover); border-radius: 6px;
+  background: var(--hover); border-radius: var(--r-md);
 }
 .seg button {
   height: 24px; padding: 0 8px;
-  border: 0; border-radius: 4px;
+  border: 0; border-radius: var(--r-sm);
   background: transparent; color: var(--text-2);
   font-size: 13px; font-weight: 500; white-space: nowrap;
   transition: background 0.1s ease, color 0.1s ease;
@@ -226,24 +262,60 @@ button { cursor: pointer; }
 }
 .seg button:disabled { opacity: 0.3; }
 
+/* Stroked line icons. Deliberately NOT called `.icon`: `.btn.icon` already
+   means "square icon button", and a bare `.icon` rule matches that button too,
+   which is how the theme toggle ended up 28x15. */
+.ui-icon {
+  width: 15px; height: 15px;
+  fill: none; stroke: currentColor;
+  stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+}
+
 .select-wrap { display: flex; align-items: center; }
 select {
   height: 28px; padding: 0 4px;
-  border: 0; border-radius: 4px;
+  border: 0; border-radius: var(--r-sm);
   background: transparent; color: var(--text-2);
   font-size: 14px; font-weight: 500;
 }
 select:hover { background: var(--hover); }
 
-.zoom-slider { width: 92px; accent-color: var(--accent); }
+.zoom-slider, .field input[type='range'] {
+  -webkit-appearance: none; appearance: none;
+  height: 16px; background: transparent; cursor: pointer;
+}
+.zoom-slider::-webkit-slider-runnable-track,
+.field input[type='range']::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 3px;
+  background: rgba(var(--ink-rgb), 0.16);
+}
+.zoom-slider::-webkit-slider-thumb,
+.field input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 12px; height: 12px; margin-top: -4px;
+  border-radius: 50%; border: 0;
+  background: var(--knob);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  transition: background 0.1s ease;
+}
+.zoom-slider:hover::-webkit-slider-thumb,
+.field input[type='range']:hover::-webkit-slider-thumb { background: var(--knob-hover); }
+.zoom-slider:focus-visible, .field input[type='range']:focus-visible { outline: none; }
+
+.zoom-slider { width: 92px; }
 
 .search {
-  height: 28px; width: 170px; padding: 0 10px;
-  border: 0; border-radius: 4px;
+  height: 28px; flex: 0 1 170px; min-width: 120px; padding: 0 10px;
+  border: 0; border-radius: var(--r-sm);
   background: var(--hover); color: var(--text);
   font-size: 14px;
 }
 .search::placeholder { color: var(--text-3); }
+/* At the narrowest sizes the field shrinks to a stub but stays in the DOM, so
+   Cmd-F still has something to focus - and focusing it opens it back up. */
+.search.mini { flex: 0 1 34px; min-width: 0; padding: 0 8px; }
+.search.mini:focus { flex: 0 0 150px; min-width: 150px; }
+
 .search:focus {
   outline: none;
   box-shadow: var(--accent) 0 0 0 1px inset, rgba(35, 131, 226, 0.35) 0 0 0 2px;
@@ -251,24 +323,59 @@ select:hover { background: var(--hover); }
 }
 
 .menu { position: relative; }
-.menu > summary { list-style: none; cursor: pointer; }
-.menu > summary::-webkit-details-marker { display: none; }
 .menu-body {
-  position: absolute; right: 0; top: 33px; z-index: 40;
-  min-width: 190px; padding: 4px;
-  background: var(--bg); border-radius: 6px;
+  position: absolute; right: 0; top: 34px; z-index: 40;
+  min-width: 214px; padding: 5px;
+  background: var(--bg); border-radius: var(--r-lg);
   box-shadow: var(--shadow-menu);
 }
-.menu-body button {
-  display: block; width: 100%; text-align: left;
-  padding: 6px 8px; border: 0; border-radius: 4px;
+
+/* Rows are the full width of the popover minus its padding, so the hover
+   highlight reads as an inset pill rather than a full-bleed band. */
+.menu-item {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; min-height: 30px; padding: 5px 8px;
+  border: 0; border-radius: var(--r-sm);
   background: transparent; color: var(--text);
-  font-size: 14px;
+  font-size: 14px; text-align: left;
 }
-.menu-body button:hover { background: var(--hover); }
-.menu-body button.on { color: var(--accent); font-weight: 500; }
+.menu-item:hover { background: var(--hover); }
+.menu-label { flex: 1; min-width: 0; }
+.menu-item kbd {
+  flex: 0 0 auto; font: inherit; font-size: 11px;
+  background: transparent; color: var(--text-3);
+}
+
+/* Single choice: a radio circle. Multiple choice: a square with a tick.
+   Both sit on the left so every label starts at the same x. */
+.menu-radio, .menu-box {
+  flex: 0 0 auto; width: 16px; height: 16px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1.5px solid var(--card-border);
+  transition: background 0.1s ease, border-color 0.1s ease;
+}
+.menu-radio { border-radius: 50%; position: relative; }
+.menu-box { border-radius: var(--r-xs); }
+.menu-item:hover .menu-radio, .menu-item:hover .menu-box { border-color: var(--text-3); }
+.menu-radio.on, .menu-box.on,
+.menu-item:hover .menu-radio.on, .menu-item:hover .menu-box.on {
+  background: var(--accent); border-color: var(--accent);
+}
+.menu-radio.on::after {
+  content: ''; position: absolute; inset: 0; margin: auto;
+  width: 5.5px; height: 5.5px; border-radius: 50%; background: #fff;
+}
+.menu-box .menu-tick {
+  width: 12px; height: 12px;
+  fill: none; stroke: #fff; stroke-width: 2.4;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+/* Rows with no control still line up with the ones that have. */
+.menu-item.plain .menu-label { padding-left: 24px; }
+
+.menu-sep { height: 1px; margin: 5px 4px; background: var(--divider); }
 .menu-head {
-  margin: 8px 0 2px; padding: 0 8px;
+  margin: 6px 0 2px; padding: 0 8px;
   font-size: 11px; font-weight: 500;
   color: var(--text-3);
 }
@@ -296,9 +403,12 @@ select:hover { background: var(--hover); }
   height: 100%;
   display: flex; align-items: flex-end; gap: 4px;
   padding: 0 8px 7px 6px;
+  overflow: hidden;
   background: var(--bg);
   border-right: 1px solid var(--divider);
 }
+.head-corner.collapsed { padding: 0; border-right: 0; }
+
 .head-col {
   flex: 0 0 auto;
   padding-left: 8px;
@@ -326,18 +436,18 @@ select:hover { background: var(--hover); }
 .tick.minor.is-today .tick-label {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 20px; height: 20px; padding: 0 5px;
-  border-radius: 20px; background: var(--accent);
+  border-radius: 20px; background: var(--today);
   color: #fff; font-weight: 600;
 }
 
 .head-today {
   position: absolute; top: 0; bottom: 0; width: 1px; z-index: 1;
-  background: var(--accent);
+  background: var(--today);
 }
 .head-today::after {
-  content: ''; position: absolute; top: -3px; left: -3px;
+  content: ''; position: absolute; top: 0; left: -3px;
   width: 7px; height: 7px; border-radius: 50%;
-  background: var(--accent);
+  background: var(--today);
 }
 
 /* grid -------------------------------------------------------------------- */
@@ -346,39 +456,137 @@ select:hover { background: var(--hover); }
 .gridline.dim { background: var(--weekend); }
 .today-line {
   position: absolute; top: 0; bottom: 0; width: 1px;
-  background: var(--accent); opacity: 0.75;
+  background: var(--today); opacity: 0.8;
 }
 .today-band {
   position: absolute; top: 0; bottom: 0;
   background: var(--today-tint);
 }
 
+/* Sits at z-index 0 like .grid but later in DOM order, so it hides the
+   gridlines under the table column while the rows (z-index 1) paint over it. */
+.side-backdrop {
+  position: sticky; left: 0; z-index: 0;
+  background: var(--bg);
+  border-right: 1px solid var(--divider);
+  pointer-events: none;
+}
+
+/* Sits above bars (z 1) but below the sticky table column (z 3), so it reads
+   across the canvas without spilling over the sidebar. */
+.edge-guide {
+  position: absolute; top: 0; bottom: 0; width: 1px; z-index: 2;
+  display: none;
+  background: var(--c-yellow);
+  pointer-events: none;
+}
+/* The date rides the guide, tied to it by a short leader line. */
+.edge-label {
+  position: absolute; z-index: 2; display: none;
+  margin-left: 9px; transform: translateY(-50%);
+  color: var(--c-yellow); font-size: 13px; font-weight: 500;
+  white-space: nowrap; pointer-events: none;
+}
+.edge-label::before {
+  content: ''; position: absolute; left: -9px; top: 50%;
+  width: 7px; height: 1px; background: currentColor;
+}
+.edge-label.start {
+  margin-left: -9px; transform: translate(-100%, -50%);
+}
+.edge-label.start::before { left: auto; right: -9px; }
+
+/* Zero-size sticky anchor: pins to the scrollport's left edge, so its
+   absolutely-positioned children are effectively in viewport coordinates
+   horizontally while keeping content coordinates vertically. */
+.jump-layer {
+  position: sticky; left: 0; z-index: 4;
+  width: 0; height: 0;
+}
+
+/* Pinned to the canvas edge on rows whose bar is scrolled out of sight. */
+.jump {
+  position: absolute; z-index: 2;
+  display: flex; align-items: center; gap: 3px;
+  height: 20px; max-width: 190px; padding: 0 6px;
+  border: 1px solid var(--card-border); border-radius: var(--r-xs);
+  background: var(--bg); box-shadow: var(--card-shadow);
+  color: var(--text-3); font-size: 12px; white-space: nowrap;
+  opacity: 0.8;
+  transition: opacity 0.1s ease, color 0.1s ease;
+}
+.jump:hover { opacity: 1; color: var(--text); }
+.jump-right { transform: translateX(-100%); }
+.jump-title { overflow: hidden; text-overflow: ellipsis; }
+.jump-chev {
+  flex: 0 0 auto; display: block; width: 11px; height: 11px;
+  fill: none; stroke: currentColor; stroke-width: 1.8;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+
 /* rows -------------------------------------------------------------------- */
 .layer { position: absolute; left: 0; right: 0; z-index: 1; }
 
-.row {
-  position: absolute; left: 0; right: 0;
-  box-shadow: inset 0 -1px 0 var(--divider);
+.row { position: absolute; left: 0; right: 0; }
+
+/* Nested rows sit in a recessed well, so the canvas shows what belongs to what.
+   Declared before :hover and .selected so those still win on the background.
+   The sticky table cell is opaque and sits above this, so the shading only
+   reads on the canvas - which is exactly where nesting was invisible. */
+.row.nested { background-color: rgba(var(--ink-rgb), 0.017); }
+.row.nest-top { box-shadow: inset 0 7px 7px -8px rgba(var(--ink-rgb), 0.32); }
+.row.nest-bottom { box-shadow: inset 0 -7px 7px -8px rgba(var(--ink-rgb), 0.32); }
+.row.nest-top.nest-bottom {
+  box-shadow:
+    inset 0 7px 7px -8px rgba(var(--ink-rgb), 0.32),
+    inset 0 -7px 7px -8px rgba(var(--ink-rgb), 0.32);
 }
-.row:hover { background: var(--hover); }
-.row.selected { background: var(--selected); }
+.row:hover { background: var(--row-hover); }
+.row.selected { background: var(--row-selected); }
 
 .side {
   position: sticky; left: 0; z-index: 3;
   height: 100%; width: 100%;
   display: flex; align-items: center; gap: 4px;
   padding: 0 8px 0 6px;
+  overflow: hidden;
   background: var(--bg);
   border-right: 1px solid var(--divider);
+  /* The rule sits under the table cell only - the canvas stays clean, which is
+     what Notion does and what stops long bars from looking boxed in. */
+  box-shadow: inset 0 -1px 0 var(--divider);
 }
-.row:hover .side { background: color-mix(in srgb, var(--hover), var(--bg)); }
-.row.selected .side { background: color-mix(in srgb, var(--selected), var(--bg)); }
+.side.collapsed { padding: 0; border-right: 0; }
+.row:hover .side { background-image: linear-gradient(var(--row-hover), var(--row-hover)); }
+.row.selected .side { background-image: linear-gradient(var(--row-selected), var(--row-selected)); }
 
-.indent { flex: 0 0 auto; }
+/* Tree guides: one 16px cell per ancestor level, sitting after the drag grip.
+   The 9px inset puts each vertical exactly under the centre of its parent's
+   twisty. Levels above this item draw a straight pass-through when that
+   ancestor still has siblings to come; the last cell curves into the parent. */
+.twig { position: relative; flex: 0 0 auto; width: 16px; align-self: stretch; }
+.twig.line::before {
+  content: ''; position: absolute; left: 9px; top: 0; bottom: 0; width: 1px;
+  background: var(--twig);
+}
+/* The corner is a rounded border box rather than two straight rules, so the
+   line turns into the row instead of meeting it at a hard right angle. */
+.twig.elbow::before {
+  content: ''; position: absolute; left: 9px; top: 0;
+  width: 9px; height: 50%;
+  border-left: 1px solid var(--twig);
+  border-bottom: 1px solid var(--twig);
+  border-bottom-left-radius: 8px;
+}
+/* A middle child keeps its sibling line running on past the corner. */
+.twig.elbow:not(.last)::after {
+  content: ''; position: absolute; left: 9px; top: 50%; bottom: 0; width: 1px;
+  background: var(--twig);
+}
 .grip {
   flex: 0 0 auto; width: 14px; height: 20px; padding: 0;
   display: flex; align-items: center; justify-content: center;
-  border: 0; border-radius: 3px; background: transparent;
+  border: 0; border-radius: var(--r-xs); background: transparent;
   color: var(--text-3); opacity: 0; cursor: grab;
   transition: opacity 0.1s ease;
 }
@@ -390,7 +598,7 @@ select:hover { background: var(--hover); }
 .disclosure {
   flex: 0 0 auto; width: 18px; height: 18px; padding: 0;
   display: flex; align-items: center; justify-content: center;
-  border: 0; border-radius: 3px; background: transparent; color: var(--text-3);
+  border: 0; border-radius: var(--r-xs); background: transparent; color: var(--text-3);
 }
 .disclosure:hover { background: var(--hover); color: var(--text); }
 .disclosure-spacer { flex: 0 0 auto; width: 18px; }
@@ -409,7 +617,7 @@ select:hover { background: var(--hover); }
 
 .title-input {
   flex: 1; min-width: 0; height: 24px; padding: 0 5px;
-  border: 0; border-radius: 3px;
+  border: 0; border-radius: var(--r-xs);
   background: var(--bg); color: var(--text);
   box-shadow: var(--accent) 0 0 0 1px, rgba(35, 131, 226, 0.35) 0 0 0 3px;
   outline: none;
@@ -428,7 +636,7 @@ select:hover { background: var(--hover); }
 
 .pill {
   display: inline-block;
-  padding: 1px 7px; border-radius: 3px;
+  padding: 1px 7px; border-radius: var(--r-xs);
   font-size: 12px; line-height: 18px;
   background: var(--t-gray); color: var(--text-2);
 }
@@ -443,7 +651,7 @@ select:hover { background: var(--hover); }
 .group-row:hover { background: transparent; }
 .group-side { background: var(--bg) !important; }
 .group-label {
-  padding: 1px 7px; border-radius: 3px;
+  padding: 1px 7px; border-radius: var(--r-xs);
   background: var(--t); color: var(--c);
   font-size: 13px; font-weight: 600;
 }
@@ -451,7 +659,7 @@ select:hover { background: var(--hover); }
 .group-add {
   margin-left: auto; width: 20px; height: 20px; padding: 0;
   display: flex; align-items: center; justify-content: center;
-  border: 0; border-radius: 3px; background: transparent;
+  border: 0; border-radius: var(--r-xs); background: transparent;
   color: var(--text-3); font-size: 15px; line-height: 1;
   opacity: 0; transition: opacity 0.1s ease;
 }
@@ -466,46 +674,62 @@ select:hover { background: var(--hover); }
 .bar {
   position: absolute; z-index: 1;
   display: flex; align-items: center;
-  border-radius: 3px;
-  background: var(--c);
-  cursor: grab;
-  transition: box-shadow 0.1s ease, filter 0.1s ease;
+  border-radius: var(--r-md);
+  background: var(--bg);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--card-shadow);
+  cursor: pointer;
+  transition: box-shadow 0.1s ease, border-color 0.1s ease;
 }
-.bar:hover { filter: brightness(1.07); box-shadow: var(--shadow-bar); }
-.bar:active { cursor: grabbing; }
-.row.selected .bar { box-shadow: var(--bg) 0 0 0 2px, var(--accent) 0 0 0 3.5px; }
+.bar:hover { box-shadow: rgba(15, 15, 15, 0.12) 0 2px 6px; }
+.row.selected .bar {
+  border-color: var(--accent);
+  box-shadow: rgba(35, 131, 226, 0.25) 0 0 0 2.5px;
+}
 
-/* Sticky label: stays readable when the bar runs off the left of the canvas. */
-.bar-label {
+/* Sticky: keeps the twisty and label readable once the bar's start has
+   scrolled off the left of the canvas. */
+.bar-inner {
   position: sticky;
-  max-width: 100%;
-  padding: 0 8px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 13px; font-weight: 500; color: #fff;
-  pointer-events: none;
+  display: flex; align-items: center; gap: 1px;
+  max-width: 100%; min-width: 0;
+  padding: 0 9px;
 }
-.bar-label.outside {
+.bar-inner.outside {
   position: absolute; left: calc(100% + 6px); top: 50%;
   transform: translateY(-50%);
   max-width: none; padding: 0;
-  color: var(--text-2); font-weight: 400;
 }
+.bar-label {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 14px; font-weight: 500; color: var(--text);
+  pointer-events: none;
+}
+.bar-inner.outside .bar-label { color: var(--text-2); font-weight: 400; }
+.bar-chev { width: 15px; height: 15px; margin-left: -3px; color: var(--text-2); }
+.bar-chev .chev { width: 11px; height: 11px; }
+
+/* An explicitly chosen color tints the card; inherited lane color does not. */
+.bar.tinted {
+  background: var(--t);
+  border-color: color-mix(in srgb, var(--c) 34%, transparent);
+}
+.bar.tinted .bar-label, .bar.tinted .bar-chev { color: var(--c); }
 
 .bar.derived {
-  background: var(--t);
-  box-shadow: inset 0 0 0 1px var(--c);
+  background: var(--bg-sunken);
+  border-color: var(--card-border);
 }
-.bar.derived .bar-label { color: var(--c); font-weight: 600; }
+.bar.derived .bar-label { color: var(--text-2); font-weight: 600; }
 
 /* Fuzzy dates: hatched and dashed, so an uncertain plan never looks scheduled. */
 .bar.soft {
   background-image: repeating-linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.32) 0 5px,
-    rgba(255, 255, 255, 0) 5px 11px
+    rgba(var(--ink-rgb), 0.09) 0 5px,
+    rgba(var(--ink-rgb), 0) 5px 11px
   );
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45);
-  opacity: 0.92;
+  border-style: dashed;
 }
 .bar.is-done { opacity: 0.42; }
 .bar.is-dropped { opacity: 0.3; }
@@ -513,60 +737,96 @@ select:hover { background: var(--hover); }
 
 .progress {
   position: absolute; left: 0; top: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.18);
-  border-radius: 3px 0 0 3px;
+  background: rgba(var(--ink-rgb), 0.07);
+  border-radius: var(--r-md) 0 0 var(--r-md);
   pointer-events: none;
 }
 
 .handle { position: absolute; top: 0; bottom: 0; width: 9px; z-index: 2; cursor: ew-resize; }
 .handle-start { left: -3px; }
 .handle-end { right: -3px; }
-.bar:hover .handle::after {
-  content: ''; position: absolute; top: 26%; bottom: 26%; width: 2px;
-  background: rgba(255, 255, 255, 0.9); border-radius: 2px;
+/* The grip belongs to the edge, not the whole bar - showing it on `.bar:hover`
+   put two of them on screen whenever the pointer was anywhere over the block. */
+.handle::after {
+  content: ''; position: absolute; top: 18%; bottom: 18%; width: 3px;
+  /* Solid ink (near-black on light, near-white on dark) rather than a wash -
+     it only ever appears under the cursor, so it may as well be definite. */
+  background: var(--text); border-radius: var(--r-xs);
+  opacity: 0; transition: opacity 0.1s ease;
 }
-.bar:hover .handle-start::after { left: 4px; }
-.bar:hover .handle-end::after { right: 4px; }
-.bar.derived:hover .handle::after { display: none; }
+.handle-start::after { left: 3.5px; }
+.handle-end::after { right: 3.5px; }
+.handle:hover::after { opacity: 1; }
 
 /* dependency connectors --------------------------------------------------- */
 .link-port {
-  position: absolute; top: 50%; width: 11px; height: 11px;
-  margin-top: -5.5px; z-index: 4;
-  border-radius: 50%;
+  position: absolute; top: 50%; width: 22px; height: 22px;
+  margin-top: -11px; z-index: 4;
+  cursor: crosshair;
+}
+/* The element is a roomy invisible target; the visible dot is the pseudo, so
+   getting "near" the port is enough to reveal it without having to find an
+   11px circle that isn't drawn yet. Sits clear of the resize zone. */
+.link-port::before {
+  content: ''; position: absolute; inset: 0; margin: auto;
+  width: 11px; height: 11px; border-radius: 50%;
   background: var(--bg); box-shadow: inset 0 0 0 2px var(--accent);
-  opacity: 0; cursor: crosshair;
+  opacity: 0;
   transition: opacity 0.1s ease, transform 0.1s ease;
 }
-.link-port-end { right: -16px; }
-.link-port-start { left: -16px; }
-.row:hover .link-port, .linking .link-port { opacity: 1; }
-.link-port:hover { transform: scale(1.25); }
+.link-port-end { right: -25px; }
+.link-port-start { left: -25px; }
+.link-port:hover::before, .linking .link-port::before { opacity: 1; }
+.link-port:hover::before { transform: scale(1.2); }
 
 .deps { position: absolute; left: 0; top: 0; z-index: 2; pointer-events: none; overflow: visible; }
-.dep-path { fill: none; stroke: var(--text-3); stroke-width: 1.5; }
+.dep-path {
+  fill: none; stroke: var(--text-3); stroke-width: 1.5;
+  stroke-linecap: round; stroke-linejoin: round;
+}
 .dep-path.hot { stroke: var(--accent); stroke-width: 2; }
 .dep-head { fill: var(--text-3); }
 .dep-head.hot { fill: var(--accent); }
 .dep-hit { fill: none; stroke: transparent; stroke-width: 10; pointer-events: stroke; cursor: pointer; }
 
 .bar.ghost {
-  background: color-mix(in srgb, var(--c) 24%, transparent);
-  box-shadow: inset 0 0 0 1.5px var(--c);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1.5px dashed var(--accent);
+  box-shadow: none;
   pointer-events: none;
 }
 
-.milestone { position: absolute; z-index: 1; cursor: grab; }
+/* Same material as a bar - white card, hairline border, soft shadow - just
+   turned 45 degrees, so a point in time reads differently from a span without
+   looking like it came from another app. */
+.milestone { position: absolute; z-index: 1; cursor: pointer; }
 .milestone::before {
-  content: ''; position: absolute; inset: 14%;
-  background: var(--c); border-radius: 2px;
+  content: ''; position: absolute; inset: 19%;
+  background: var(--bg);
+  border: 1px solid var(--card-border);
+  border-radius: 4px;
+  box-shadow: var(--card-shadow);
   transform: rotate(45deg);
+  transition: box-shadow 0.1s ease, border-color 0.1s ease;
 }
-.milestone:hover::before { filter: brightness(1.1); }
+.milestone:hover::before { box-shadow: rgba(15, 15, 15, 0.14) 0 2px 6px; }
+.row.selected .milestone::before {
+  border-color: var(--accent);
+  box-shadow: rgba(35, 131, 226, 0.25) 0 0 0 2.5px;
+}
+.milestone.tinted::before {
+  background: var(--t);
+  border-color: color-mix(in srgb, var(--c) 40%, transparent);
+}
+.milestone.soft::before { border-style: dashed; }
+.milestone.is-done { opacity: 0.42; }
+.milestone.is-dropped { opacity: 0.3; }
+.milestone.is-dropped .milestone-label { text-decoration: line-through; }
+
 .milestone-label {
-  position: absolute; left: calc(100% + 4px); top: 50%;
+  position: absolute; left: calc(100% + 2px); top: 50%;
   transform: translateY(-50%);
-  white-space: nowrap; font-size: 13px; color: var(--text-2);
+  white-space: nowrap; font-size: 14px; color: var(--text-2);
   pointer-events: none;
 }
 
@@ -575,7 +835,7 @@ select:hover { background: var(--hover); }
   position: absolute; z-index: 6; pointer-events: none;
   background: var(--selected);
   box-shadow: inset 0 0 0 1px var(--accent);
-  border-radius: 2px;
+  border-radius: var(--r-xs);
 }
 
 /* row drop indicator ------------------------------------------------------ */
@@ -591,7 +851,7 @@ select:hover { background: var(--hover); }
 .drop-into {
   position: absolute; left: 0; right: 0; z-index: 7;
   box-shadow: inset 0 0 0 2px var(--accent);
-  border-radius: 3px; pointer-events: none;
+  border-radius: var(--r-xs); pointer-events: none;
 }
 
 /* minimap ----------------------------------------------------------------- */
@@ -602,19 +862,19 @@ select:hover { background: var(--hover); }
   cursor: crosshair; overflow: hidden;
   user-select: none;
 }
-.mini-row { position: absolute; height: 3px; border-radius: 2px; background: var(--c); opacity: 0.75; }
+.mini-row { position: absolute; height: 3px; border-radius: var(--r-xs); background: var(--c); opacity: 0.75; }
 .mini-year {
   position: absolute; top: 0; bottom: 0;
   border-left: 1px solid var(--divider);
   font-size: 10px; color: var(--text-3);
   padding-left: 4px; padding-top: 1px;
 }
-.mini-today { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--accent); }
+.mini-today { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--today); }
 .mini-window {
   position: absolute; top: 0; bottom: 0;
-  background: rgba(35, 131, 226, 0.13);
-  box-shadow: inset 0 0 0 1px var(--accent);
-  border-radius: 2px; cursor: grab;
+  background: rgba(var(--ink-rgb), 0.07);
+  box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), 0.3);
+  border-radius: var(--r-xs); cursor: grab;
 }
 .mini-window:active { cursor: grabbing; }
 
@@ -633,7 +893,7 @@ select:hover { background: var(--hover); }
   position: fixed; left: 0; top: 0; z-index: 100;
   display: none; padding: 4px 9px;
   background: rgb(15, 15, 15); color: rgba(255, 255, 255, 0.9);
-  border-radius: 4px; box-shadow: var(--shadow-menu);
+  border-radius: var(--r-sm); box-shadow: var(--shadow-menu);
   font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap;
   pointer-events: none;
 }
@@ -645,46 +905,77 @@ select:hover { background: var(--hover); }
 
 /* --------------------------------------------------------------- detail --- */
 .detail {
-  flex: 0 0 auto; width: 300px;
-  padding: 16px 14px 24px;
+  position: relative;
+  display: flex; flex-direction: column;
+  flex: 0 0 auto; width: 292px;
+  padding: 10px 12px 12px;
   overflow-y: auto;
   background: var(--bg);
   border-left: 1px solid var(--divider);
 }
 .detail.empty { display: flex; align-items: center; justify-content: center; }
 
+.panel-head { display: flex; align-items: center; gap: 2px; margin-bottom: 8px; }
+.panel-collapse {
+  flex: 0 0 auto; width: 24px; height: 24px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 0; border-radius: var(--r-sm); background: transparent;
+  color: var(--text-3); font-size: 17px; line-height: 1;
+}
+.panel-collapse:hover { background: var(--hover); color: var(--text); }
+.detail.empty .panel-collapse { position: absolute; top: 10px; right: 12px; }
+
+.detail-reopen {
+  position: absolute; top: 54px; right: 0; z-index: 30;
+  width: 20px; height: 34px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 0; border-radius: var(--r-sm) 0 0 var(--r-sm);
+  background: var(--bg-sunken); color: var(--text-3);
+  box-shadow: rgba(15, 15, 15, 0.1) 0 0 0 1px;
+  font-size: 15px; line-height: 1;
+}
+.detail-reopen:hover { color: var(--text); background: var(--hover); }
+
 .detail-title {
-  width: 100%; margin-bottom: 16px; padding: 4px 6px;
-  border: 0; border-radius: 4px;
+  flex: 1; min-width: 0; padding: 3px 6px;
+  border: 0; border-radius: var(--r-sm);
   background: transparent; color: var(--text);
-  font-size: 18px; font-weight: 600; letter-spacing: -0.01em;
+  font-size: 16px; font-weight: 600; letter-spacing: -0.01em;
 }
 .detail-title:hover { background: var(--hover); }
 .detail-title:focus { background: var(--hover); outline: none; }
 
-.field { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-.field.col { flex-direction: column; align-items: stretch; margin-top: 8px; }
-.field-label { flex: 0 0 68px; font-size: 13px; color: var(--text-3); }
+.field { display: flex; align-items: center; gap: 6px; min-height: 28px; }
+.field.col { flex-direction: column; align-items: stretch; gap: 2px; margin-top: 6px; }
+/* Column layout leaves the slack at the bottom, so Delete sits directly
+   under the notes box rather than being pushed to the panel's floor. */
+.field.notes { flex: 0 0 auto; }
+.field-label { flex: 0 0 62px; font-size: 12px; color: var(--text-3); }
 .field-row { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
-.field input[type='date'], .field textarea {
-  padding: 4px 6px;
-  border: 0; border-radius: 4px;
+.field textarea {
+  padding: 5px 6px;
+  border: 0; border-radius: var(--r-sm);
   background: var(--hover); color: var(--text);
   font-size: 13px;
 }
-.field input[type='date'] { flex: 1; min-width: 0; }
-.field input[type='date']:focus, .field textarea:focus {
+.field textarea:focus {
   outline: none; box-shadow: var(--accent) 0 0 0 1px inset;
 }
-.field select { font-size: 13px; font-weight: 400; color: var(--text); }
-.field input[type='range'] { flex: 1; accent-color: var(--accent); }
-.field textarea { resize: vertical; margin-top: 6px; font: inherit; font-size: 13px; }
+.field select { flex: 1; min-width: 0; height: 26px; font-size: 13px; font-weight: 400; color: var(--text); }
+.progress-value { flex: 0 0 30px; font-size: 12px; text-align: right; }
+.field input[type='range'] { flex: 1; min-width: 0; }
+.field textarea { resize: vertical; font: inherit; font-size: 13px; }
 
-.detail-span { margin: 6px 0 14px; font-size: 13px; color: var(--text-2); }
+.detail-span { margin: 0 0 4px 68px; font-size: 12px; color: var(--text-3); }
+.link {
+  padding: 0; border: 0; background: none;
+  color: var(--accent); font: inherit; text-decoration: underline;
+  text-underline-offset: 2px;
+}
 
-.swatches { display: flex; flex-wrap: wrap; gap: 5px; }
+.swatches { display: flex; gap: 3px; flex: 1; }
 .swatch {
-  width: 18px; height: 18px; padding: 0;
+  width: 16px; height: 16px; flex: 0 0 auto; padding: 0;
   border: 0; border-radius: 50%;
   background: var(--c);
   box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), 0.1);
@@ -694,18 +985,118 @@ select:hover { background: var(--hover); }
 }
 .swatch.on { box-shadow: var(--bg) 0 0 0 2px, var(--accent) 0 0 0 3.5px; }
 
-.dep-list { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.dep-list { display: flex; flex-direction: column; gap: 3px; }
 .dep-item {
   display: flex; align-items: center; gap: 6px;
-  padding: 3px 6px; border-radius: 4px;
+  padding: 3px 6px; border-radius: var(--r-sm);
   background: var(--hover); font-size: 13px;
 }
 .dep-item span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dep-item button {
   border: 0; background: transparent; color: var(--text-3);
-  padding: 0 2px; border-radius: 3px; line-height: 1;
+  padding: 0 2px; border-radius: var(--r-xs); line-height: 1;
 }
 .dep-item button:hover { background: var(--pressed); color: var(--text); }
+
+/* ---------------------------------------------------------- context menu -- */
+.ctx-menu {
+  position: fixed; z-index: 200;
+  min-width: 194px; padding: 5px;
+  background: var(--bg); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-menu);
+}
+.ctx-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; padding: 5px 8px;
+  border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--text);
+  font-size: 14px; text-align: left; white-space: nowrap;
+}
+.ctx-item:hover { background: var(--hover); }
+.ctx-item.danger { color: var(--c-red); }
+.ctx-item.danger:hover { background: var(--t-red); }
+.ctx-item kbd { background: transparent; color: var(--text-3); }
+.ctx-sep { height: 1px; margin: 4px 6px; background: var(--divider); }
+.ctx-colors { display: flex; flex-wrap: wrap; gap: 4px; padding: 3px 8px 5px; }
+
+/* ----------------------------------------------------------- date picker -- */
+.date-field {
+  flex: 1; min-width: 0; height: 26px; padding: 0 7px;
+  display: flex; align-items: center;
+  border: 0; border-radius: var(--r-sm);
+  background: var(--hover); color: var(--text);
+  font-size: 13px; text-align: left; white-space: nowrap; overflow: hidden;
+}
+.date-field:hover { background: var(--pressed); }
+.date-field.empty { color: var(--text-3); }
+.date-field.open { box-shadow: var(--accent) 0 0 0 1px inset; }
+
+.datepicker {
+  position: fixed; z-index: 210;
+  width: 246px; padding: 8px;
+  background: var(--bg); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-menu);
+}
+.dp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.dp-title { font-size: 13px; font-weight: 600; }
+.dp-nav {
+  width: 24px; height: 24px; padding: 0;
+  border: 0; border-radius: var(--r-sm); background: transparent;
+  color: var(--text-2); font-size: 15px; line-height: 1;
+}
+.dp-nav:hover { background: var(--hover); color: var(--text); }
+
+.dp-dow {
+  display: grid; grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 2px;
+}
+.dp-dow span {
+  text-align: center; font-size: 11px; color: var(--text-3);
+}
+.dp-grid { display: grid; gap: 1px; }
+.dp-days { grid-template-columns: repeat(7, 1fr); }
+.dp-months, .dp-years { grid-template-columns: repeat(3, 1fr); gap: 3px; }
+.dp-quarters { grid-template-columns: repeat(2, 1fr); gap: 3px; }
+
+.dp-cell {
+  height: 30px; padding: 0;
+  border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--text);
+  font-size: 13px; font-variant-numeric: tabular-nums;
+}
+.dp-cell.wide { height: 34px; font-size: 13px; }
+.dp-cell:hover:not(:disabled) { background: var(--hover); }
+.dp-cell:disabled { color: var(--text-3); opacity: 0.4; cursor: default; }
+.dp-cell.outside { color: var(--text-3); }
+.dp-cell.today { color: var(--accent); font-weight: 700; }
+.dp-cell.on {
+  background: var(--accent); color: #fff; font-weight: 600;
+}
+.dp-cell.on:hover:not(:disabled) { background: var(--accent); }
+
+.dp-precision {
+  display: flex; gap: 1px; margin-top: 8px; padding: 2px;
+  background: var(--hover); border-radius: var(--r-md);
+}
+.dp-precision button {
+  flex: 1; height: 22px; padding: 0;
+  border: 0; border-radius: var(--r-sm); background: transparent;
+  color: var(--text-2); font-size: 11px; font-weight: 500;
+}
+.dp-precision button:hover { color: var(--text); }
+.dp-precision button.on {
+  background: var(--bg); color: var(--text);
+  box-shadow: rgba(15, 15, 15, 0.08) 0 1px 2px;
+}
+
+.dp-foot { display: flex; gap: 4px; margin-top: 6px; }
+.dp-foot button {
+  flex: 1; height: 26px;
+  border: 0; border-radius: var(--r-sm); background: var(--hover);
+  color: var(--text-2); font-size: 12px;
+}
+.dp-foot button:hover { background: var(--pressed); color: var(--text); }
+.dp-foot .dp-clear:hover { background: var(--t-red); color: var(--c-red); }
 
 /* ------------------------------------------------------------ statusbar --- */
 .statusbar {
@@ -722,7 +1113,7 @@ select:hover { background: var(--hover); }
 .hint { display: flex; align-items: center; gap: 4px; }
 kbd {
   padding: 0 4px;
-  border-radius: 3px; background: var(--hover);
+  border-radius: var(--r-xs); background: var(--hover);
   font: inherit; font-size: 11px; color: var(--text-2);
 }
 
@@ -732,7 +1123,7 @@ kbd {
 .scroller::-webkit-scrollbar-thumb {
   background: rgba(var(--ink-rgb), 0.22);
   border: 3px solid var(--bg);
-  border-radius: 8px;
+  border-radius: var(--r-lg);
 }
 .scroller::-webkit-scrollbar-thumb:hover { background: rgba(var(--ink-rgb), 0.38); }
 .scroller::-webkit-scrollbar-corner { background: var(--bg); }

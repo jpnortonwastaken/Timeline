@@ -1,10 +1,10 @@
 import { statusLabel, useStore } from '../store'
 import { COLORS } from '../lib/colors'
-import { formatLongDate, isoToDay, dayToIso, formatSpan } from '../lib/time'
+import { dayToIso, formatSpan, isoToDay } from '../lib/time'
 import { depsOf } from '../lib/deps'
-import type { Precision, Status } from '../types'
+import { DatePicker } from './DatePicker'
+import type { Status } from '../types'
 
-const PRECISIONS: Precision[] = ['day', 'week', 'month', 'quarter', 'year']
 const STATUSES: Status[] = ['idea', 'planned', 'active', 'done', 'dropped']
 
 export function DetailPanel() {
@@ -16,13 +16,26 @@ export function DetailPanel() {
   const deleteItems = useStore((s) => s.deleteItems)
   const removeDep = useStore((s) => s.removeDep)
   const select = useStore((s) => s.select)
+  const setDetailOpen = useStore((s) => s.setDetailOpen)
 
   const id = selection.length === 1 ? selection[0] : null
   const item = id ? items[id] : null
 
+  const collapse = (
+    <button
+      className="panel-collapse"
+      onClick={() => setDetailOpen(false)}
+      title="Close"
+      aria-label="Close panel"
+    >
+      ×
+    </button>
+  )
+
   if (!item) {
     return (
       <aside className="detail empty">
+        {collapse}
         <p className="muted">
           {selection.length > 1 ? `${selection.length} items selected` : 'Select an item'}
         </p>
@@ -35,12 +48,15 @@ export function DetailPanel() {
 
   return (
     <aside className="detail">
-      <input
-        className="detail-title"
-        value={item.title}
-        placeholder="Untitled"
-        onChange={(e) => updateItem(item.id, { title: e.target.value }, true)}
-      />
+      <div className="panel-head">
+        <input
+          className="detail-title"
+          value={item.title}
+          placeholder="Untitled"
+          onChange={(e) => updateItem(item.id, { title: e.target.value }, true)}
+        />
+        {collapse}
+      </div>
 
       <div className="field">
         <span className="field-label">Lane</span>
@@ -75,76 +91,43 @@ export function DetailPanel() {
 
       <div className="field">
         <span className="field-label">Start</span>
-        <div className="field-row">
-          <input
-            type="date"
-            value={item.start?.date ?? ''}
-            onChange={(e) =>
-              updateItem(item.id, {
-                start: e.target.value
-                  ? { date: e.target.value, precision: item.start?.precision ?? 'day' }
-                  : null,
-              })
-            }
-          />
-          <select
-            value={item.start?.precision ?? 'day'}
-            disabled={!item.start}
-            title="How certain is this date?"
-            onChange={(e) =>
-              item.start &&
-              updateItem(item.id, { start: { ...item.start, precision: e.target.value as Precision } })
-            }
-          >
-            {PRECISIONS.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-        </div>
+        <DatePicker
+          value={item.start}
+          onChange={(v) => updateItem(item.id, { start: v })}
+          placeholder="Pick a date"
+        />
       </div>
 
       <div className="field">
         <span className="field-label">End</span>
-        <div className="field-row">
-          <input
-            type="date"
-            value={item.end?.date ?? ''}
-            min={item.start?.date}
-            onChange={(e) =>
-              updateItem(item.id, {
-                end: e.target.value
-                  ? { date: e.target.value, precision: item.end?.precision ?? 'day' }
-                  : null,
-              })
-            }
-          />
-          <button
-            className="btn small"
-            title="Clear the end date to make this a milestone"
-            onClick={() =>
-              updateItem(item.id, {
-                end: item.end
-                  ? null
-                  : { date: dayToIso((startDay ?? 0) + 6), precision: 'day' },
-              })
-            }
-          >
-            {item.end ? 'Make milestone' : 'Give it a span'}
-          </button>
-        </div>
+        <DatePicker
+          value={item.end}
+          onChange={(v) => updateItem(item.id, { end: v })}
+          minDay={startDay ?? undefined}
+          placeholder="Milestone"
+          clearable
+        />
       </div>
 
       {startDay != null && endDay != null && (
+        <p className="detail-span">{formatSpan(endDay + 1 - startDay)}</p>
+      )}
+      {startDay != null && endDay == null && (
         <p className="detail-span">
-          {formatLongDate(item.start!.date)} → {formatLongDate(item.end!.date)}
-          <span className="muted"> · {formatSpan(endDay + 1 - startDay)}</span>
+          Milestone ·{' '}
+          <button
+            className="link"
+            onClick={() =>
+              updateItem(item.id, { end: { date: dayToIso(startDay + 6), precision: 'day' } })
+            }
+          >
+            give it a span
+          </button>
         </p>
       )}
 
-      <div className="field col">
-        <span className="field-label">Colour</span>
+      <div className="field">
+        <span className="field-label">Color</span>
         <div className="swatches">
           <button
             className={'swatch inherit' + (item.colorId === null ? ' on' : '')}
@@ -173,25 +156,15 @@ export function DetailPanel() {
             value={item.progress ?? 0}
             onChange={(e) => updateItem(item.id, { progress: +e.target.value }, true)}
           />
-          <span className="muted mono">
+          <span className="muted mono progress-value">
             {item.progress == null ? '—' : `${Math.round(item.progress * 100)}%`}
           </span>
           {item.progress != null && (
-            <button className="btn small" onClick={() => updateItem(item.id, { progress: null })}>
-              Clear
+            <button className="link" onClick={() => updateItem(item.id, { progress: null })}>
+              clear
             </button>
           )}
         </div>
-      </div>
-
-      <div className="field col">
-        <span className="field-label">Notes</span>
-        <textarea
-          value={item.notes}
-          rows={5}
-          placeholder="Anything worth remembering…"
-          onChange={(e) => updateItem(item.id, { notes: e.target.value }, true)}
-        />
       </div>
 
       <DependencySection
@@ -199,8 +172,18 @@ export function DetailPanel() {
         deps={allDeps}
         items={items}
         onRemove={removeDep}
-        onGoTo={(id) => select([id])}
+        onGoTo={(gid) => select([gid])}
       />
+
+      <div className="field col notes">
+        <span className="field-label">Notes</span>
+        <textarea
+          value={item.notes}
+          rows={4}
+          placeholder="Anything worth remembering…"
+          onChange={(e) => updateItem(item.id, { notes: e.target.value }, true)}
+        />
+      </div>
 
       <button
         className="btn danger"
@@ -229,16 +212,8 @@ function DependencySection({
   onGoTo: (id: string) => void
 }) {
   const { incoming, outgoing } = depsOf(deps, itemId)
-  if (!incoming.length && !outgoing.length) {
-    return (
-      <div className="field col">
-        <span className="field-label">Dependencies</span>
-        <p className="muted" style={{ fontSize: 13, margin: '4px 0 0' }}>
-          Drag the ○ on either end of a bar onto another bar.
-        </p>
-      </div>
-    )
-  }
+  if (!incoming.length && !outgoing.length) return null
+
   return (
     <div className="field col">
       <span className="field-label">Dependencies</span>

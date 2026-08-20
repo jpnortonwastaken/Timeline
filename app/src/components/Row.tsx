@@ -75,6 +75,41 @@ function TitleEditor({ id, initial }: { id: string; initial: string }) {
   )
 }
 
+function LaneEditor({ id, initial }: { id: string; initial: string }) {
+  const ref = useRef<HTMLInputElement>(null)
+  const updateLane = useStore((s) => s.updateLane)
+  const setEditingLane = useStore((s) => s.setEditingLane)
+
+  useEffect(() => {
+    ref.current?.focus()
+    ref.current?.select()
+  }, [])
+
+  const commit = () => {
+    const v = (ref.current?.value ?? '').trim()
+    // Blank is treated as "leave it alone" - lanes are created pre-named, so
+    // there's never a nameless one to clean up.
+    if (v && v !== initial) updateLane(id, { name: v })
+    setEditingLane(null)
+  }
+
+  return (
+    <input
+      ref={ref}
+      className="title-input lane-input"
+      defaultValue={initial}
+      placeholder="Lane name"
+      onBlur={commit}
+      onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation()
+        if (e.key === 'Enter') commit()
+        if (e.key === 'Escape') setEditingLane(null)
+      }}
+    />
+  )
+}
+
 function RowImpl({
   row,
   index,
@@ -97,12 +132,28 @@ function RowImpl({
         data-row-index={index}
         data-row-kind="new"
         data-lane-id={row.laneId ?? ''}
-        data-status={row.status ?? ''}
         style={{ top, height }}
       >
-        <div className="side" style={{ width: sidebarWidth }}>
+        <div className={'side' + (sidebarWidth ? '' : ' collapsed')} style={{ width: sidebarWidth }}>
           <span className="new-label">
             <span aria-hidden>+</span> New
+          </span>
+        </div>
+      </div>
+    )
+  }
+
+  if (row.kind === 'new-lane') {
+    return (
+      <div
+        className="row new-row"
+        data-row-index={index}
+        data-row-kind="new-lane"
+        style={{ top, height }}
+      >
+        <div className={'side' + (sidebarWidth ? '' : ' collapsed')} style={{ width: sidebarWidth }}>
+          <span className="new-label">
+            <span aria-hidden>+</span> New lane
           </span>
         </div>
       </div>
@@ -118,17 +169,26 @@ function RowImpl({
         data-group-id={row.id}
         style={{ top, height }}
       >
-        <div className={'side group-side c-' + row.colorId} style={{ width: sidebarWidth }}>
+        <div
+          className={'side group-side c-' + row.colorId + (sidebarWidth ? '' : ' collapsed')}
+          style={{ width: sidebarWidth }}
+        >
           <button
             className="disclosure"
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => row.id !== '__none' && toggleLaneCollapse(row.id)}
+            onClick={() => toggleLaneCollapse(row.id)}
             aria-label={row.collapsed ? 'Expand group' : 'Collapse group'}
           >
             <Chevron open={!row.collapsed} />
           </button>
-          <span className="group-label">{row.label}</span>
-          <span className="group-count">{row.count}</span>
+          {editing ? (
+            <LaneEditor id={row.id} initial={row.label} />
+          ) : (
+            <>
+              <span className="group-label">{row.label || 'Untitled lane'}</span>
+              <span className="group-count">{row.count}</span>
+            </>
+          )}
           <button className="group-add" data-group-add aria-label="Add to this group">
             +
           </button>
@@ -143,22 +203,40 @@ function RowImpl({
   // Below this the label can't live inside the bar, so it sits alongside it.
   const labelOutside = barWidth < 46
   const soft = item.start?.precision && item.start.precision !== 'day'
-  const barTop = Math.round(height * 0.17)
+  // Only an explicitly chosen color tints the card; lane-inherited color stays
+  // in the sidebar dot, so the default canvas reads as clean white cards.
+  const tinted = item.colorId !== null
+  const barTop = Math.round(height * 0.13)
   const barHeight = height - barTop * 2
 
   return (
     <div
-      className={'row item-row' + (selected ? ' selected' : '') + (linking ? ' linking' : '')}
+      className={
+        'row item-row' +
+        (selected ? ' selected' : '') +
+        (linking ? ' linking' : '') +
+        (row.depth ? ' nested' : '') +
+        (row.nestTop ? ' nest-top' : '') +
+        (row.nestBottom ? ' nest-bottom' : '')
+      }
       data-row-index={index}
       data-row-kind="item"
       data-item-id={item.id}
       style={{ top, height }}
     >
-      <div className="side" style={{ width: sidebarWidth }}>
-        <span className="indent" style={{ width: row.depth * 16 }} />
+      <div className={'side' + (sidebarWidth ? '' : ' collapsed')} style={{ width: sidebarWidth }}>
+        {/* The grip stays hard left at every depth, ahead of the tree guides,
+            so the drag handles line up in a single column. */}
         <button className="grip" data-grip aria-label="Drag to reorder">
           <GripIcon />
         </button>
+        {Array.from({ length: row.depth }, (_, i) =>
+          i === row.depth - 1 ? (
+            <span key={i} className={'twig elbow' + (row.isLast ? ' last' : '')} />
+          ) : (
+            <span key={i} className={'twig' + (row.trail[i] ? ' line' : '')} />
+          ),
+        )}
         {row.hasChildren ? (
           <button
             className="disclosure"
@@ -198,7 +276,14 @@ function RowImpl({
 
       {span && span.milestone && (
         <div
-          className={'milestone c-' + row.colorId}
+          className={
+            'milestone c-' +
+            row.colorId +
+            (tinted ? ' tinted' : '') +
+            (soft ? ' soft' : '') +
+            (item.status === 'done' ? ' is-done' : '') +
+            (item.status === 'dropped' ? ' is-dropped' : '')
+          }
           data-bar-id={item.id}
           style={{
             left: barLeft,
@@ -221,6 +306,7 @@ function RowImpl({
             'bar c-' +
             row.colorId +
             (span.derived ? ' derived' : '') +
+            (tinted ? ' tinted' : '') +
             (soft ? ' soft' : '') +
             (item.status === 'done' ? ' is-done' : '') +
             (item.status === 'dropped' ? ' is-dropped' : '')
@@ -232,13 +318,23 @@ function RowImpl({
           {item.progress != null && (
             <span className="progress" style={{ width: `${Math.round(item.progress * 100)}%` }} />
           )}
-          {/* `position: sticky` keeps the label visible when the bar runs off the
-              left edge - no scroll listener needed. */}
+          {/* `position: sticky` keeps the label and its twisty visible when the
+              bar runs off the left edge - no scroll listener needed. */}
           <span
-            className={'bar-label' + (labelOutside ? ' outside' : '')}
-            style={labelOutside ? undefined : { left: sidebarWidth + 8 }}
+            className={'bar-inner' + (labelOutside ? ' outside' : '')}
+            style={labelOutside ? undefined : { left: sidebarWidth + 6 }}
           >
-            {item.title || 'Untitled'}
+            {row.hasChildren && (
+              <button
+                className="disclosure bar-chev"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => toggleCollapse(item.id)}
+                aria-label={row.collapsed ? 'Expand' : 'Collapse'}
+              >
+                <Chevron open={!row.collapsed} />
+              </button>
+            )}
+            <span className="bar-label">{item.title || 'Untitled'}</span>
           </span>
           {!span.derived && <span className="handle handle-end" data-handle="end" />}
           <span className="link-port link-port-start" data-port="in" />
@@ -267,6 +363,7 @@ export const TimelineRow = memo(RowImpl, (a, b) => {
   const y = b.row
   if (x.kind !== y.kind) return false
   if (x.kind === 'new' || y.kind === 'new') return x.key === y.key
+  if (x.kind === 'new-lane' || y.kind === 'new-lane') return x.key === y.key
   if (x.kind === 'group' && y.kind === 'group') {
     return (
       x.label === y.label &&
@@ -283,6 +380,11 @@ export const TimelineRow = memo(RowImpl, (a, b) => {
     xi.collapsed === yi.collapsed &&
     xi.hasChildren === yi.hasChildren &&
     xi.colorId === yi.colorId &&
+    xi.nestTop === yi.nestTop &&
+    xi.nestBottom === yi.nestBottom &&
+    xi.isLast === yi.isLast &&
+    xi.trail.length === yi.trail.length &&
+    xi.trail.every((v, i) => v === yi.trail[i]) &&
     xi.span?.startDay === yi.span?.startDay &&
     xi.span?.endDay === yi.span?.endDay
   )
