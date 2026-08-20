@@ -14,6 +14,12 @@ interface Props {
   editing: boolean
   columns: string[]
   linking: boolean
+  /** Reveal phase, driving the fade keyframes. */
+  anim?: 'enter' | 'exit'
+  /** A leftover copy kept on screen only so a collapsing subtree can fade out.
+      It drops the data-* hooks so DOM queries can never pick it over a real
+      row, and CSS makes it pointer-transparent. */
+  ghost?: boolean
 }
 
 function Chevron({ open }: { open: boolean }) {
@@ -121,15 +127,18 @@ function RowImpl({
   editing,
   columns,
   linking,
+  anim,
+  ghost,
 }: Props) {
   const toggleCollapse = useStore((s) => s.toggleCollapse)
   const toggleLaneCollapse = useStore((s) => s.toggleLaneCollapse)
+  const animClass = anim ? ' anim-' + anim : ''
 
   if (row.kind === 'new') {
     return (
       <div
-        className="row new-row"
-        data-row-index={index}
+        className={'row new-row' + animClass}
+        data-row-index={ghost ? undefined : index}
         data-row-kind="new"
         data-lane-id={row.laneId ?? ''}
         style={{ top, height }}
@@ -146,8 +155,8 @@ function RowImpl({
   if (row.kind === 'new-lane') {
     return (
       <div
-        className="row new-row"
-        data-row-index={index}
+        className={'row new-row' + animClass}
+        data-row-index={ghost ? undefined : index}
         data-row-kind="new-lane"
         style={{ top, height }}
       >
@@ -163,10 +172,10 @@ function RowImpl({
   if (row.kind === 'group') {
     return (
       <div
-        className="row group-row"
-        data-row-index={index}
+        className={'row group-row' + animClass}
+        data-row-index={ghost ? undefined : index}
         data-row-kind="group"
-        data-group-id={row.id}
+        data-group-id={ghost ? undefined : row.id}
         style={{ top, height }}
       >
         <div
@@ -217,11 +226,12 @@ function RowImpl({
         (linking ? ' linking' : '') +
         (row.depth ? ' nested' : '') +
         (row.nestTop ? ' nest-top' : '') +
-        (row.nestBottom ? ' nest-bottom' : '')
+        (row.nestBottom ? ' nest-bottom' : '') +
+        animClass
       }
-      data-row-index={index}
+      data-row-index={ghost ? undefined : index}
       data-row-kind="item"
-      data-item-id={item.id}
+      data-item-id={ghost ? undefined : item.id}
       style={{ top, height }}
     >
       <div className={'side' + (sidebarWidth ? '' : ' collapsed')} style={{ width: sidebarWidth }}>
@@ -284,7 +294,7 @@ function RowImpl({
             (item.status === 'done' ? ' is-done' : '') +
             (item.status === 'dropped' ? ' is-dropped' : '')
           }
-          data-bar-id={item.id}
+          data-bar-id={ghost ? undefined : item.id}
           style={{
             left: barLeft,
             top: barTop,
@@ -311,7 +321,7 @@ function RowImpl({
             (item.status === 'done' ? ' is-done' : '') +
             (item.status === 'dropped' ? ' is-dropped' : '')
           }
-          data-bar-id={item.id}
+          data-bar-id={ghost ? undefined : item.id}
           style={{ left: barLeft, width: barWidth, top: barTop, height: barHeight }}
         >
           {!span.derived && <span className="handle handle-start" data-handle="start" />}
@@ -355,7 +365,9 @@ export const TimelineRow = memo(RowImpl, (a, b) => {
     a.editing !== b.editing ||
     a.linking !== b.linking ||
     a.index !== b.index ||
-    a.columns !== b.columns
+    a.columns !== b.columns ||
+    a.anim !== b.anim ||
+    a.ghost !== b.ghost
   ) {
     return false
   }

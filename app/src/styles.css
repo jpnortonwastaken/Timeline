@@ -37,6 +37,11 @@
   --r-sm: 7px;   /* buttons, inputs, menu rows, calendar cells */
   --r-md: 9px;   /* bars, milestones, segmented trays */
   --r-lg: 12px;  /* menus, popovers, floating surfaces */
+
+  /* Expand/collapse reveal. Keep --reveal in step with REVEAL_MS in
+     Timeline.tsx, which decides how long the fading-out rows stay mounted. */
+  --reveal: 190ms;
+  --reveal-ease: cubic-bezier(0.32, 0.72, 0, 1);
   --card-shadow: rgba(15, 15, 15, 0.05) 0 1px 2px;
   --today: rgb(216, 79, 71);
   --twig: rgba(var(--ink-rgb), 0.22);
@@ -542,6 +547,56 @@ select:hover { background: var(--hover); }
     inset 0 -7px 7px -8px rgba(var(--ink-rgb), 0.32);
 }
 .row:hover { background: var(--row-hover); }
+
+/* ---- expand / collapse ------------------------------------------------
+   The transition lives on `.row` unconditionally rather than behind a
+   `.revealing` class. It has to: the class is added by a layout-effect
+   re-render, so by the time it lands React has already committed the new
+   `top` values and there is nothing left to animate. A live transition
+   catches the change instead. Rows only ever change `top` when the list
+   reshapes - never on scroll, since `top` is absolute-index based - so this
+   costs nothing the rest of the time.
+
+   Deliberately no `transform`: `.side` is `position: sticky` inside each row,
+   and a transformed ancestor becomes its containing block, which detaches the
+   pinned table column mid-animation. `top` and `opacity` do the same job
+   without touching the sticky machinery.
+
+   `box-shadow` rides the same clock so the nesting shadows deepen as a
+   subtree settles into its indent, instead of snapping a frame early.
+   `background-color` is left out on purpose - it is shared with the row
+   hover, and the nesting wash is far too faint to be worth slowing hover. */
+.row {
+  transition:
+    top var(--reveal) var(--reveal-ease),
+    box-shadow var(--reveal) var(--reveal-ease);
+}
+.row.anim-enter { animation: row-enter var(--reveal) var(--reveal-ease) both; }
+.row.anim-exit {
+  animation: row-exit var(--reveal) var(--reveal-ease) both;
+  pointer-events: none;
+}
+@keyframes row-enter { from { opacity: 0; } to { opacity: 1; } }
+@keyframes row-exit { from { opacity: 1; } to { opacity: 0; } }
+
+/* Dependency arrows and jump markers are drawn from `index * rowH`, so they
+   land on their final geometry the instant the list changes - while the bars
+   they point at are still gliding there. Rather than show arrows hanging off
+   the wrong bars, drop them for the duration (instantly, so a wrong frame is
+   never painted) and fade them back once the rows have settled. */
+.deps, .jump-layer { transition: opacity 140ms ease; }
+.layer.revealing .deps,
+.layer.revealing .jump-layer {
+  opacity: 0;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row { transition: none; }
+  .deps, .jump-layer { transition: none; }
+  .row.anim-enter, .row.anim-exit { animation: none; }
+  .row.anim-exit { opacity: 0; }
+}
 .row.selected { background: var(--row-selected); }
 
 .side {

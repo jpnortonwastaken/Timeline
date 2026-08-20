@@ -318,6 +318,48 @@ The rules are declared before `:hover` and `.selected` so those still win on the
 background, and the sticky table cell is opaque and painted above, so the
 shading only shows on the canvas — exactly where the cue was missing.
 
+## Expanding and collapsing
+
+Toggling a twisty fades the affected rows and glides everything below into
+place over `--reveal` (190ms). Three things make it work, and each of them is
+a trap worth knowing about.
+
+**The transition cannot be gated behind a class.** The obvious shape is
+`.layer.revealing .row { transition: top ... }`, switched on while an
+animation is in flight. It does not fire. The class is added by a
+layout-effect re-render, which happens *after* React has already committed
+the new `top` values - so the transition becomes live only once there is
+nothing left to animate. `.row` carries the transition unconditionally
+instead, which is order-independent. It costs nothing when idle: `top` is
+derived from the absolute row index, so it never changes on scroll, only when
+the list actually reshapes.
+
+**No `transform`, anywhere in the reveal.** `.side` is `position: sticky`
+inside every row. A transformed ancestor becomes its containing block and
+detaches the pinned table column for the length of the animation. `top` and
+`opacity` do the same job and leave sticky alone.
+
+**Rows that leave have to outlive the state change.** A collapsing subtree is
+gone from `flatten()` the instant the store updates, so `Timeline` keeps a
+copy of the departing rows (`Reveal.exit`) mounted at their old `y` until the
+fade ends. Those copies render with `ghost`, which drops `data-item-id`,
+`data-bar-id` and `data-row-index` - otherwise `querySelector('[data-bar-id]')`
+in the drag path could pick a fading ghost over the real bar. They are culled
+to the viewport, so collapsing a large subtree doesn't mount hundreds of
+throwaway rows.
+
+Dependency arrows and jump markers are positioned from `index * rowH`, so
+they jump to their final geometry the moment the list changes, while the bars
+they point at are still moving. They are hidden outright for the duration
+(instantly, so no wrong frame is ever painted) and faded back in once the
+rows settle.
+
+Testing this in the preview pane is miserable: a hidden page freezes CSS
+transitions mid-flight and never finishes them, so a stale transition leaves
+`getComputedStyle().top` disagreeing with `style.top` and the *next* toggle
+looks like it silently failed to animate. Flush with
+`el.getAnimations().forEach(a => a.finish())` before measuring anything.
+
 ## Bar edges
 
 The resize grips and the dependency ports are both scoped to their own hover

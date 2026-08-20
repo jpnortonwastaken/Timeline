@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { descendants, flatten } from '../lib/tree'
-import type { Span } from '../lib/tree'
+import type { Row as TreeRow, Span } from '../lib/tree'
 import type { Unit } from '../lib/time'
 import type { ItemId } from '../types'
 import {
@@ -25,6 +25,15 @@ import type { MenuState } from './ContextMenu'
 
 const OVERSCAN_PX = 400
 const OVERSCAN_ROWS = 6
+/** Keep in step with --reveal in styles.css. */
+const REVEAL_MS = 190
+
+interface Reveal {
+  /** Keys of rows that just appeared, so they fade in. */
+  enter: Set<string>
+  /** Rows that just left, held at their old y until the fade finishes. */
+  exit: { row: TreeRow; top: number }[]
+}
 
 type Mode = 'move' | 'start' | 'end' | 'create' | 'link' | 'marquee' | 'reorder'
 
@@ -220,6 +229,46 @@ export function Timeline() {
     })
     return m
   }, [rows])
+
+  /* ---- expand/collapse reveal ----------------------------------------
+     Driven off the collapse state alone, so the many other things that
+     reshape the list - editing, searching, reordering, undo - stay instant
+     and keep their direct-style-mutation fast paths. */
+  const collapseSig = useMemo(() => {
+    const parts: string[] = []
+    for (const id in items) if (items[id].collapsed) parts.push(id)
+    for (const id in lanes) if (lanes[id].collapsed) parts.push('g:' + id)
+    if (noLaneCollapsed) parts.push('g:none')
+    return parts.sort().join(',')
+  }, [items, lanes, noLaneCollapsed])
+
+  const [reveal, setReveal] = useState<Reveal | null>(null)
+  const prevRowsRef = useRef(rows)
+  const collapseSigRef = useRef(collapseSig)
+  const revealTimer = useRef(0)
+
+  useLayoutEffect(() => {
+    const prev = prevRowsRef.current
+    prevRowsRef.current = rows
+    if (collapseSigRef.current === collapseSig) return
+    collapseSigRef.current = collapseSig
+
+    const before = new Set(prev.map((r) => r.key))
+    const after = new Set(rows.map((r) => r.key))
+    const enter = new Set(rows.filter((r) => !before.has(r.key)).map((r) => r.key))
+    const exit = prev
+      .map((row, i) => ({ row, top: i * rowH }))
+      .filter((x) => !after.has(x.row.key))
+    if (!enter.size && !exit.length) return
+
+    setReveal({ enter, exit })
+    // A ref rather than effect cleanup: `rows` can change again mid-flight,
+    // and a cleanup would cancel the reset and strand ghosts on screen.
+    window.clearTimeout(revealTimer.current)
+    revealTimer.current = window.setTimeout(() => setReveal(null), REVEAL_MS)
+  }, [collapseSig, rows, rowH])
+
+  useEffect(() => () => window.clearTimeout(revealTimer.current), [])
 
   // -- scroll tracking -------------------------------------------------------
   const syncView = useCallback(() => {
@@ -1245,7 +1294,7 @@ export function Timeline() {
 
           {/* ---- rows ---- */}
           <div
-            className="layer"
+            className={'layer' + (reveal ? ' revealing' : '')}
             ref={layerRef}
             style={{ top: HEADER_HEIGHT, height: rowsHeight + 120 }}
             onPointerDown={onPointerDown}
@@ -1309,8 +1358,36 @@ export function Timeline() {
                 }
                 columns={columns}
                 linking={linkingActive}
+                anim={reveal?.enter.has(row.key) ? 'enter' : undefined}
               />
             ))}
+
+            {/* ...and the rows that just left stay one beat longer to fade out.
+                Culled to the viewport so collapsing a huge subtree doesn't
+                mount hundreds of throwaway rows. */}
+            {reveal?.exit
+              .filter(
+                (x) =>
+                  x.top + rowH > view.scrollTop - rowH * OVERSCAN_ROWS &&
+                  x.top < view.scrollTop + view.h + rowH * OVERSCAN_ROWS,
+              )
+              .map((x) => (
+                <TimelineRow
+                  key={'exit:' + x.row.key}
+                  row={x.row}
+                  index={-1}
+                  top={x.top}
+                  height={rowH}
+                  ppd={ppd}
+                  sidebarWidth={sidebarWidth}
+                  selected={false}
+                  editing={false}
+                  columns={columns}
+                  linking={false}
+                  anim="exit"
+                  ghost
+                />
+              ))}
 
             <svg className="deps" width={contentWidth} height={rowsHeight}>
               {depPaths.map((p) => (
