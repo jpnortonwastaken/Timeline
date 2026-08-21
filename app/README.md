@@ -360,6 +360,100 @@ transitions mid-flight and never finishes them, so a stale transition leaves
 looks like it silently failed to animate. Flush with
 `el.getAnimations().forEach(a => a.finish())` before measuring anything.
 
+## Beware bare class names
+
+Three bugs so far have come from a generic class matching something it was
+never meant to. `.tick` (header cell) caught a menu checkmark; `.icon` (SVG
+sizing) caught square icon buttons; and `.col` - the table's column *cell*,
+which carries `height: 100%` and a left border - caught the detail panel's
+`className="field col"`, stretching the notes field to the panel's full
+height and leaving a screenful of dead space under it. The panel modifier is
+now `.field.stack`.
+
+When a style looks inexplicable, dump the *matched rules* rather than reading
+computed values: computed style tells you the number, not who set it.
+
+```js
+[...document.styleSheets].flatMap(s => [...s.cssRules])
+  .filter(r => r.selectorText && el.matches(r.selectorText))
+```
+
+Related: `.field-label` is `flex: 0 0 62px`, which is a column *width* in a row
+field but becomes a 62px *height* in a stacked one. `.field.stack` resets it.
+
+## Popovers and panels
+
+Entry animations are free - a CSS animation runs on mount. Leaving is the
+problem: React unmounts the node the moment the flag flips, so there is
+nothing left to animate. `usePresence(open, ms)` in `lib/presence.ts` holds
+the node for `ms` with a `leaving` flag, then drops it. The `ms` must match
+the exit keyframes, or the node is pulled out from under a half-played
+animation.
+
+The context menu is the awkward one: its data lives in `Timeline`, which sets
+`menu` to null on close. `lastMenu` keeps the previous value so the popover
+still has something to render on the way out.
+
+## Creating from a "+ New" row
+
+Hovering one moves its dashed preview to the snapped day under the cursor, so
+the block starts where you press rather than at a fixed date you then have to
+drag it away from. `left` is transitioned, because days snap and the preview
+would otherwise hop between whole units.
+
+The press itself is a `create` drag: release without moving for a
+`DEFAULT_DAYS` block, or drag to size it. Both paths run through the same
+commit as a canvas create.
+
+Two traps in that:
+
+- `pointerup` has an `if (!d.moved) return` guard, on the reasoning that a
+  press that never moved is only a click. That guard runs *before* the create
+  branch, so click-to-create silently did nothing. `createCtx.defaultDays`
+  marks the gestures allowed through it - it stays null for canvas creates,
+  where a click really must leave nothing behind.
+- The preview's `left` starts life as a React style prop. Mutating it during
+  hover means React will not put it back: its diff compares against previous
+  props, not the DOM, so the value looks unchanged and is never rewritten.
+  `resetNewPreview()` restores it by hand when the pointer leaves.
+
+## Vertical drags
+
+Two gestures move a block up or down: the grip, and dragging the bar itself
+once the axis locks to y. Both offer the same three targets - above, below, or
+nested inside - split by where in the hovered row the pointer sits (<0.3,
+>0.7, else child). `showDropTarget()` owns that split, the indicator, and the
+tooltip, so the two gestures can't drift apart.
+
+Nesting inside is a filled row (`.drop-into`); above/below is a line
+(`.drop-line`). Different shapes on purpose: a line reads as "between", a fill
+reads as "into".
+
+`reorderItem` already refuses to drop a branch inside itself, but silently -
+so the gesture checks the same thing up front and says
+"Can't nest inside itself" rather than offering a target that will do nothing.
+
+## Never animate `transform` on the detail panel
+
+The panel holds three `position: fixed` popovers - the Lane and Status
+pickers and the two date pickers - which position themselves from
+`getBoundingClientRect()`, i.e. in viewport coordinates.
+
+An element with a transform becomes the containing block for its fixed
+descendants, and that includes an element whose transform animation has
+merely *finished* while filling (`animation-fill-mode: both`), even though
+the computed value is back to `none`. Giving `.detail` a slide-in animation
+therefore re-anchored every popover to the panel instead of the viewport:
+
+    panel at x=776 + field at x=857  ->  popover rendered at x=1634
+
+which is off the right edge of the window, so clicking a dropdown appeared to
+do nothing at all. The panel is deliberately unanimated now. If it ever needs
+one, animate `opacity` only, or move the popovers to a portal outside it.
+
+Same family as the `overflow: hidden` and sticky traps above: a containing
+block appearing where you didn't expect one.
+
 ## Bar edges
 
 The resize grips and the dependency ports are both scoped to their own hover

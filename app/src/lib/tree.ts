@@ -1,5 +1,5 @@
 import type { Item, ItemId, Lane } from '../types'
-import { isoToDay } from './time'
+import { isoToDay, todayDay } from './time'
 
 const ROOT = '__root__'
 
@@ -48,11 +48,23 @@ export interface GroupRow {
   count: number
 }
 
-/** The "+ New" affordance at the foot of every group, as in Notion. */
+/**
+ * The "+ New" affordance. One sits at the foot of every group, and one at the
+ * foot of every expanded parent's children - so adding a sub-item doesn't mean
+ * scrolling to the bottom of the lane, which is how Notion does it.
+ */
 export interface NewRow {
   kind: 'new'
   key: string
   laneId: string | null
+  /** Set for the in-tree ones: the item the new row would nest under. */
+  parentId: ItemId | null
+  /** Indent level, matching the children it sits below. */
+  depth: number
+  /** Closes the nested run when this is the last row of one. */
+  nestBottom: boolean
+  /** Day the block it would create starts on, for the hover preview. */
+  previewStart: number
 }
 
 /** The affordance for adding a lane, at the foot of the lane list. */
@@ -183,6 +195,19 @@ export function flatten({ items, lanes, search, noLaneCollapsed }: FlattenArgs):
     if (!collapsed) {
       const childTrail = depth === 0 ? [] : [...trail, !isLast]
       kids.forEach((c, i) => emit(c, depth + 1, colorId, childTrail, i === kids.length - 1))
+      // Only where there are already children: an "add a sub-item" line under
+      // every leaf would double the length of the list.
+      if (kids.length && !q) {
+        rows.push({
+          kind: 'new',
+          key: 'new:' + item.id,
+          laneId: item.laneId,
+          parentId: item.id,
+          depth: depth + 1,
+          nestBottom: false,
+          previewStart: item.start ? isoToDay(item.start.date) : todayDay(),
+        })
+      }
     }
   }
 
@@ -228,6 +253,10 @@ export function flatten({ items, lanes, search, noLaneCollapsed }: FlattenArgs):
           kind: 'new',
           key: 'new:' + g.id,
           laneId: g.id === '__none' ? null : g.id,
+          parentId: null,
+          depth: 0,
+          nestBottom: false,
+          previewStart: todayDay(),
         })
       }
     }
@@ -236,13 +265,21 @@ export function flatten({ items, lanes, search, noLaneCollapsed }: FlattenArgs):
 
   // Shade only the ends of each nested run: shading every child row would put
   // a divider between siblings instead of reading as one container.
+  // An in-tree "+ New" counts as part of the run it sits in, so the run closes
+  // below it rather than above.
+  const runDepth = (r: Row | undefined) =>
+    r?.kind === 'item' || r?.kind === 'new' ? r.depth : -1
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i]
-    if (r.kind !== 'item' || r.depth === 0) continue
-    const prev = rows[i - 1]
-    const next = rows[i + 1]
-    r.nestTop = !(prev?.kind === 'item' && prev.depth >= r.depth)
-    r.nestBottom = !(next?.kind === 'item' && next.depth >= r.depth)
+    if (runDepth(r) <= 0) continue
+    const above = runDepth(rows[i - 1])
+    const below = runDepth(rows[i + 1])
+    if (r.kind === 'item') {
+      r.nestTop = !(above >= r.depth)
+      r.nestBottom = !(below >= r.depth)
+    } else if (r.kind === 'new') {
+      r.nestBottom = !(below >= r.depth)
+    }
   }
 
   const indexById = new Map<ItemId, number>()

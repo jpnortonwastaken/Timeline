@@ -3,6 +3,7 @@ import { COLORS } from '../lib/colors'
 import { dayToIso, formatSpan, isoToDay } from '../lib/time'
 import { depsOf } from '../lib/deps'
 import { DatePicker } from './DatePicker'
+import { Picker } from './Picker'
 import type { Status } from '../types'
 
 const STATUSES: Status[] = ['idea', 'planned', 'active', 'done', 'dropped']
@@ -45,6 +46,7 @@ export function DetailPanel() {
 
   const startDay = item.start ? isoToDay(item.start.date) : null
   const endDay = item.end ? isoToDay(item.end.date) : null
+  const isMilestone = item.end == null
 
   return (
     <aside className="detail">
@@ -60,33 +62,63 @@ export function DetailPanel() {
 
       <div className="field">
         <span className="field-label">Lane</span>
-        <select
+        <Picker
+          ariaLabel="Lane"
           value={item.laneId ?? ''}
-          onChange={(e) => updateItem(item.id, { laneId: e.target.value || null })}
-        >
-          <option value="">No lane</option>
-          {Object.values(lanes)
-            .sort((a, b) => a.order - b.order)
-            .map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-        </select>
+          onChange={(v) => updateItem(item.id, { laneId: v || null })}
+          options={[
+            { id: '', label: 'No lane', node: <span className="muted">No lane</span> },
+            ...Object.values(lanes)
+              .sort((a, b) => a.order - b.order)
+              .map((l) => ({
+                id: l.id,
+                label: l.name,
+                // Same chip the sidebar uses, so a lane looks the same wherever
+                // it appears.
+                node: <span className={'lane-chip c-' + l.colorId}>{l.name}</span>,
+              })),
+          ]}
+        />
       </div>
 
       <div className="field">
         <span className="field-label">Status</span>
-        <select
+        <Picker
+          ariaLabel="Status"
           value={item.status}
-          onChange={(e) => updateItem(item.id, { status: e.target.value as Status })}
-        >
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {statusLabel[s]}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => updateItem(item.id, { status: v as Status })}
+          options={STATUSES.map((st) => ({
+            id: st,
+            label: statusLabel[st],
+            node: <span className={'pill s-' + st}>{statusLabel[st]}</span>,
+          }))}
+        />
+      </div>
+
+      <div className="field">
+        <span className="field-label">Type</span>
+        <div className="segmented" role="radiogroup" aria-label="Type">
+          <button
+            role="radio"
+            aria-checked={!isMilestone}
+            className={isMilestone ? '' : 'on'}
+            onClick={() => {
+              if (!isMilestone) return
+              const from = startDay ?? 0
+              updateItem(item.id, { end: { date: dayToIso(from + 6), precision: 'day' } })
+            }}
+          >
+            Span
+          </button>
+          <button
+            role="radio"
+            aria-checked={isMilestone}
+            className={isMilestone ? 'on' : ''}
+            onClick={() => updateItem(item.id, { end: null })}
+          >
+            Milestone
+          </button>
+        </div>
       </div>
 
       <div className="field">
@@ -98,52 +130,23 @@ export function DetailPanel() {
         />
       </div>
 
-      <div className="field">
-        <span className="field-label">End</span>
-        <DatePicker
-          value={item.end}
-          onChange={(v) => updateItem(item.id, { end: v })}
-          minDay={startDay ?? undefined}
-          placeholder="Milestone"
-          clearable
-        />
-      </div>
+      {/* Milestone-ness used to be implied by an empty End date, which is only
+          discoverable once you've already found it. It's a choice now. */}
+      {!isMilestone && (
+        <div className="field">
+          <span className="field-label">End</span>
+          <DatePicker
+            value={item.end}
+            onChange={(v) => updateItem(item.id, { end: v })}
+            minDay={startDay ?? undefined}
+            placeholder="Pick a date"
+          />
+        </div>
+      )}
 
       {startDay != null && endDay != null && (
         <p className="detail-span">{formatSpan(endDay + 1 - startDay)}</p>
       )}
-      {startDay != null && endDay == null && (
-        <p className="detail-span">
-          Milestone ·{' '}
-          <button
-            className="link"
-            onClick={() =>
-              updateItem(item.id, { end: { date: dayToIso(startDay + 6), precision: 'day' } })
-            }
-          >
-            give it a span
-          </button>
-        </p>
-      )}
-
-      <div className="field">
-        <span className="field-label">Color</span>
-        <div className="swatches">
-          <button
-            className={'swatch inherit' + (item.colorId === null ? ' on' : '')}
-            title="Inherit from lane"
-            onClick={() => updateItem(item.id, { colorId: null })}
-          />
-          {COLORS.map((c) => (
-            <button
-              key={c.id}
-              className={'swatch c-' + c.id + (item.colorId === c.id ? ' on' : '')}
-              title={c.label}
-              onClick={() => updateItem(item.id, { colorId: c.id })}
-            />
-          ))}
-        </div>
-      </div>
 
       <div className="field">
         <span className="field-label">Progress</span>
@@ -167,6 +170,28 @@ export function DetailPanel() {
         </div>
       </div>
 
+      {/* Stacked, not inline: sharing the row with a 62px label leaves 231px
+          for ten swatches, which is not enough to make them both bigger and
+          better spaced. On their own line they get the full panel width. */}
+      <div className="field stack">
+        <span className="field-label">Color</span>
+        <div className="swatches">
+          <button
+            className={'swatch inherit' + (item.colorId === null ? ' on' : '')}
+            title="Inherit from lane"
+            onClick={() => updateItem(item.id, { colorId: null })}
+          />
+          {COLORS.map((c) => (
+            <button
+              key={c.id}
+              className={'swatch c-' + c.id + (item.colorId === c.id ? ' on' : '')}
+              title={c.label}
+              onClick={() => updateItem(item.id, { colorId: c.id })}
+            />
+          ))}
+        </div>
+      </div>
+
       <DependencySection
         itemId={item.id}
         deps={allDeps}
@@ -175,7 +200,7 @@ export function DetailPanel() {
         onGoTo={(gid) => select([gid])}
       />
 
-      <div className="field col notes">
+      <div className="field stack notes">
         <span className="field-label">Notes</span>
         <textarea
           value={item.notes}
@@ -215,7 +240,7 @@ function DependencySection({
   if (!incoming.length && !outgoing.length) return null
 
   return (
-    <div className="field col">
+    <div className="field stack">
       <span className="field-label">Dependencies</span>
       <div className="dep-list">
         {incoming.map((d) => (

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
+import { POP_OUT_MS, presenceClass, usePresence } from '../lib/presence'
 import { ALL_COLUMNS, useStore } from '../store'
 import { MAX_PPD, MIN_PPD, todayDay, ZOOM_PRESETS } from '../lib/time'
 import { cmd } from '../lib/viewport'
@@ -129,6 +130,7 @@ const fromSlider = (v: number) =>
 
 function ViewMenu() {
   const [open, setOpen] = useState(false)
+  const menuPresence = usePresence(open, POP_OUT_MS)
   const ref = useRef<HTMLDivElement>(null)
 
   const density = useStore((s) => s.density)
@@ -182,8 +184,8 @@ function ViewMenu() {
       >
         <GearIcon />
       </button>
-      {open && (
-        <div className="menu-body" role="menu">
+      {menuPresence.mounted && (
+        <div className={'menu-body pop' + presenceClass(menuPresence.leaving)} role="menu">
           <p className="menu-head">Appearance</p>
           {(['light', 'dark', 'auto'] as ThemeMode[]).map((m) => (
             <RadioItem

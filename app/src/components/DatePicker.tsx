@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { DateSpec, Precision } from '../types'
 import { addUnits, dayToDate, dayToIso, floorToUnit, isoToDay, todayDay } from '../lib/time'
+import { POP_OUT_MS, presenceClass, usePresence } from '../lib/presence'
 
 const DOW = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -34,6 +35,7 @@ interface Props {
 
 export function DatePicker({ value, onChange, minDay, placeholder = 'Empty', clearable }: Props) {
   const [open, setOpen] = useState(false)
+  const presence = usePresence(open, POP_OUT_MS)
   const [anchor, setAnchor] = useState({ left: 0, top: 0 })
   const btnRef = useRef<HTMLButtonElement>(null)
   const popRef = useRef<HTMLDivElement>(null)
@@ -119,8 +121,12 @@ export function DatePicker({ value, onChange, minDay, placeholder = 'Empty', cle
         {value ? label(value) : placeholder}
       </button>
 
-      {open && (
-        <div className="datepicker" ref={popRef} style={{ left: anchor.left, top: anchor.top }}>
+      {presence.mounted && (
+        <div
+          className={'datepicker pop' + presenceClass(presence.leaving)}
+          ref={popRef}
+          style={{ left: anchor.left, top: anchor.top }}
+        >
           <div className="dp-head">
             <button className="dp-nav" onClick={() => step(-1)} aria-label="Previous">‹</button>
             <span className="dp-title">{heading}</span>

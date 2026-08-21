@@ -84,7 +84,9 @@ export interface Actions {
   // lanes
   createLane: (name: string) => LaneId
   updateLane: (id: LaneId, patch: Partial<Lane>) => void
-  deleteLane: (id: LaneId) => void
+  /** `withItems` deletes the lane's blocks and their subtrees too; without it
+      they survive, just unfiled. */
+  deleteLane: (id: LaneId, withItems?: boolean) => void
 
   // view
   setPpd: (ppd: number) => void
@@ -449,16 +451,36 @@ export const useStore = create<State & Actions>((set, get) => ({
     set((s) => ({ lanes: { ...s.lanes, [id]: { ...s.lanes[id], ...patch } } }))
   },
 
-  deleteLane: (id) => {
+  deleteLane: (id, withItems) => {
     get().commit()
     set((s) => {
       const lanes = { ...s.lanes }
       delete lanes[id]
-      const items = { ...s.items }
-      for (const [k, v] of Object.entries(items)) {
-        if (v.laneId === id) items[k] = { ...v, laneId: null }
+
+      if (!withItems) {
+        const items = { ...s.items }
+        for (const [k, v] of Object.entries(items)) {
+          if (v.laneId === id) items[k] = { ...v, laneId: null }
+        }
+        return { lanes, items }
       }
-      return { lanes, items }
+
+      // Same reach as deleteItems: the lane's blocks and everything nested
+      // under them, plus any dependency that touched one.
+      const doomed = new Set<ItemId>()
+      const walk = (iid: ItemId) => {
+        doomed.add(iid)
+        for (const c of Object.values(s.items)) if (c.parentId === iid) walk(c.id)
+      }
+      for (const v of Object.values(s.items)) if (v.laneId === id) walk(v.id)
+
+      const items: Record<ItemId, Item> = {}
+      for (const [k, v] of Object.entries(s.items)) if (!doomed.has(k)) items[k] = v
+      const deps: Record<string, Dependency> = {}
+      for (const [k, dp] of Object.entries(s.deps)) {
+        if (!doomed.has(dp.fromId) && !doomed.has(dp.toId)) deps[k] = dp
+      }
+      return { lanes, items, deps, selection: s.selection.filter((x) => !doomed.has(x)) }
     })
   },
 

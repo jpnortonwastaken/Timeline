@@ -26,7 +26,8 @@
   --row-selected: rgba(var(--ink-rgb), 0.045);
   --pressed: rgba(var(--ink-rgb), 0.09);
 
-  --accent: rgb(35, 131, 226);
+  --accent-rgb: 35, 131, 226;
+  --accent: rgb(var(--accent-rgb));
   --selected: rgba(35, 131, 226, 0.12);
   --weekend: rgba(var(--ink-rgb), 0.024);
   --today-tint: rgba(216, 79, 71, 0.05);
@@ -45,6 +46,12 @@
   --card-shadow: rgba(15, 15, 15, 0.05) 0 1px 2px;
   --today: rgb(216, 79, 71);
   --twig: rgba(var(--ink-rgb), 0.22);
+
+  /* Nesting has to read as recessed, which means *darker* than the row behind
+     it. Deriving these from --ink-rgb works in light mode only: ink flips to
+     white in dark mode, which turns the well into a raised, glowing strip. */
+  --nest-wash: rgba(var(--ink-rgb), 0.017);
+  --nest-shadow: rgba(var(--ink-rgb), 0.32);
   --knob: rgb(140, 139, 135);
   --knob-hover: rgb(85, 83, 77);
 
@@ -80,6 +87,11 @@
 :root[data-theme='dark'] {
   --ink-rgb: 255, 255, 255;
 
+  /* Black rather than ink, so the well still sinks. 0.2 against the dark
+     surface moves it about as far as 0.017 of ink does on white. */
+  --nest-wash: rgba(0, 0, 0, 0.2);
+  --nest-shadow: rgba(0, 0, 0, 0.55);
+
   --bg: rgb(25, 25, 25);
   --bg-sunken: rgb(32, 32, 32);
   --bg-panel: rgb(32, 32, 32);
@@ -96,7 +108,8 @@
   --row-selected: rgba(255, 255, 255, 0.06);
   --pressed: rgba(255, 255, 255, 0.09);
 
-  --accent: rgb(35, 131, 226);
+  --accent-rgb: 35, 131, 226;
+  --accent: rgb(var(--accent-rgb));
   --selected: rgba(35, 131, 226, 0.2);
   --weekend: rgba(255, 255, 255, 0.022);
   --today-tint: rgba(223, 84, 82, 0.09);
@@ -482,14 +495,14 @@ select:hover { background: var(--hover); }
 .edge-guide {
   position: absolute; top: 0; bottom: 0; width: 1px; z-index: 2;
   display: none;
-  background: var(--c-yellow);
+  background: var(--text-2);
   pointer-events: none;
 }
 /* The date rides the guide, tied to it by a short leader line. */
 .edge-label {
   position: absolute; z-index: 2; display: none;
   margin-left: 9px; transform: translateY(-50%);
-  color: var(--c-yellow); font-size: 13px; font-weight: 500;
+  color: var(--text); font-size: 13px; font-weight: 500;
   white-space: nowrap; pointer-events: none;
 }
 .edge-label::before {
@@ -500,6 +513,17 @@ select:hover { background: var(--hover); }
   margin-left: -9px; transform: translate(-100%, -50%);
 }
 .edge-label.start::before { left: auto; right: -9px; }
+
+/* Only while an edge is actually being dragged. On hover the guide has to
+   appear exactly where the handle is - a transition there would make it slide
+   in from wherever it was last left. Same 90ms as the bar it tracks, so the
+   line and the block edge move as one. */
+body[data-drag='start'] .edge-guide,
+body[data-drag='end'] .edge-guide,
+body[data-drag='start'] .edge-label,
+body[data-drag='end'] .edge-label {
+  transition: left 90ms cubic-bezier(0.2, 0, 0, 1);
+}
 
 /* Zero-size sticky anchor: pins to the scrollport's left edge, so its
    absolutely-positioned children are effectively in viewport coordinates
@@ -538,13 +562,13 @@ select:hover { background: var(--hover); }
    Declared before :hover and .selected so those still win on the background.
    The sticky table cell is opaque and sits above this, so the shading only
    reads on the canvas - which is exactly where nesting was invisible. */
-.row.nested { background-color: rgba(var(--ink-rgb), 0.017); }
-.row.nest-top { box-shadow: inset 0 7px 7px -8px rgba(var(--ink-rgb), 0.32); }
-.row.nest-bottom { box-shadow: inset 0 -7px 7px -8px rgba(var(--ink-rgb), 0.32); }
+.row.nested { background-color: var(--nest-wash); }
+.row.nest-top { box-shadow: inset 0 7px 7px -8px var(--nest-shadow); }
+.row.nest-bottom { box-shadow: inset 0 -7px 7px -8px var(--nest-shadow); }
 .row.nest-top.nest-bottom {
   box-shadow:
-    inset 0 7px 7px -8px rgba(var(--ink-rgb), 0.32),
-    inset 0 -7px 7px -8px rgba(var(--ink-rgb), 0.32);
+    inset 0 7px 7px -8px var(--nest-shadow),
+    inset 0 -7px 7px -8px var(--nest-shadow);
 }
 .row:hover { background: var(--row-hover); }
 
@@ -645,6 +669,10 @@ select:hover { background: var(--hover); }
   color: var(--text-3); opacity: 0; cursor: grab;
   transition: opacity 0.1s ease;
 }
+/* Stands in for the grip on rows that have none, so the tree guides below a
+   parent line up with the ones beside its children. */
+.grip-spacer { flex: 0 0 auto; width: 14px; }
+.dot-spacer { flex: 0 0 auto; width: 7px; }
 .row:hover .grip { opacity: 1; }
 .grip:hover { background: var(--hover); }
 .grip:active { cursor: grabbing; }
@@ -706,6 +734,8 @@ select:hover { background: var(--hover); }
 .group-row:hover { background: transparent; }
 .group-side { background: var(--bg) !important; }
 .group-label {
+  border: 0; font: inherit; cursor: pointer;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   padding: 1px 7px; border-radius: var(--r-xs);
   background: var(--t); color: var(--c);
   font-size: 13px; font-weight: 600;
@@ -722,6 +752,19 @@ select:hover { background: var(--hover); }
 .group-add:hover { background: var(--hover); color: var(--text); }
 
 .new-row .side { color: var(--text-3); cursor: pointer; }
+/* Preview of the block "+ New" would create - same span and position as
+   newItemIn(), so the hover shows exactly what you're about to get. */
+.new-outline {
+  position: absolute; z-index: 1;
+  border: 1px dashed var(--divider-strong);
+  border-radius: var(--r-md);
+  opacity: 0; pointer-events: none;
+  /* Days snap, so the preview would otherwise hop between whole units. */
+  transition: opacity 0.12s ease, left 90ms cubic-bezier(0.2, 0, 0, 1);
+}
+/* The drag ghost takes over once a create gesture starts. */
+body[data-drag] .new-outline { opacity: 0; }
+.new-row:hover .new-outline { opacity: 1; }
 .new-row:hover .side { color: var(--text-2); }
 .new-label { display: flex; align-items: center; gap: 6px; font-size: 14px; padding-left: 4px; }
 
@@ -844,6 +887,14 @@ select:hover { background: var(--hover); }
 .dep-head.hot { fill: var(--accent); }
 .dep-hit { fill: none; stroke: transparent; stroke-width: 10; pointer-events: stroke; cursor: pointer; }
 
+/* Follows the pointer on a vertical drag, while the real bar stays put. */
+.bar.drag-copy,
+.milestone.drag-copy {
+  z-index: 8; opacity: 0.6; pointer-events: none;
+  box-shadow: rgba(15, 15, 15, 0.22) 0 5px 14px;
+  transition: none;
+}
+
 .bar.ghost {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   border: 1.5px dashed var(--accent);
@@ -894,6 +945,101 @@ select:hover { background: var(--hover); }
 }
 
 /* row drop indicator ------------------------------------------------------ */
+/* While a drag is live the pointer is captured by the layer, so without this
+   the cursor changes to whatever it flies over. Descendants inherit so the
+   cursor is uniform across the whole window for the gesture. */
+body[data-drag] * { cursor: inherit !important; }
+body[data-drag='move'] { cursor: pointer; }
+body[data-drag='start'],
+body[data-drag='end'] { cursor: ew-resize; }
+body[data-drag='reorder'] { cursor: grabbing; }
+body[data-drag='marquee'],
+body[data-drag='create'],
+body[data-drag='link'] { cursor: crosshair; }
+
+/* Dates snap to whole units, so a dragged bar arrives in steps. Easing the
+   properties the drag writes turns the steps into a glide - short enough that
+   the bar still feels pinned to the pointer. */
+.bar.drag-smooth,
+.milestone.drag-smooth {
+  transition:
+    transform 90ms cubic-bezier(0.2, 0, 0, 1),
+    left 90ms cubic-bezier(0.2, 0, 0, 1),
+    width 90ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* The hovered block's span, called out across the date header. Positioned
+   imperatively during pointermove, so hovering never re-renders the grid. */
+.head-range {
+  position: absolute; z-index: 1; display: none;
+  background: rgba(var(--ink-rgb), 0.06);
+  border-left: 1px solid var(--text-2);
+  pointer-events: none;
+}
+/* The right edge is a pseudo-element rather than a border. With border-box a
+   right border is painted *inside* the band - so it lands one pixel left of
+   the boundary, while the edge guide below it draws outward from the same
+   boundary, leaving a visible 1px jog where the two should read as one line.
+   The left side never had this: a left border and the guide both draw
+   rightward from their anchor. */
+.head-range::after {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 100%;
+  width: 1px; background: var(--text-2);
+}
+/* An opaque chip, not bare text: these sit on top of the header's own tick
+   labels, and text over text is unreadable. Same material as the off-screen
+   jump markers so floating chrome looks like one family. */
+.head-range-label {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  padding: 1px 8px;
+  border: 1px solid var(--card-border); border-radius: 999px;
+  background: var(--bg); box-shadow: var(--card-shadow);
+  color: var(--text); font-size: 11px; font-weight: 500;
+  white-space: nowrap;
+}
+/* Hung outside the band so a narrow block's dates stay readable. */
+.head-range-label.from { right: 100%; margin-right: 5px; }
+.head-range-label.to { left: 100%; margin-left: 5px; }
+/* Nothing to show for a milestone's second date; an empty chip would still
+   paint its border and shadow. */
+.head-range-label:empty { display: none; }
+
+/* Moves on the same clock as the edge guide and the bar itself, so the band,
+   the line and the block edge travel together. Scoped to a live drag: on
+   hover the band must land on the block at once, not slide onto it. */
+body[data-drag='move'] .head-range,
+body[data-drag='start'] .head-range,
+body[data-drag='end'] .head-range {
+  transition:
+    left 90ms cubic-bezier(0.2, 0, 0, 1),
+    width 90ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Popover and panel presence ---------------------------------------------
+   Entry runs on mount by itself; the exit needs usePresence() to hold the
+   node for the length of the animation, or React unmounts it mid-flight. */
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(-3px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pop-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(-2px) scale(0.985); }
+}
+.pop {
+  transform-origin: top left;
+  animation: pop-in 130ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.pop.leaving { animation: pop-out 100ms ease-in both; }
+
+/* The detail panel is deliberately not animated: it opens and closes on
+   every selection change, and a slide on each one reads as flicker. */
+
+@media (prefers-reduced-motion: reduce) {
+  .pop, .pop.leaving { animation: none; }
+  .pop.leaving { opacity: 0; }
+}
+
 .drop-line {
   position: absolute; left: 0; right: 0; height: 2px; z-index: 7;
   background: var(--accent); pointer-events: none;
@@ -905,8 +1051,8 @@ select:hover { background: var(--hover); }
 }
 .drop-into {
   position: absolute; left: 0; right: 0; z-index: 7;
-  box-shadow: inset 0 0 0 2px var(--accent);
-  border-radius: var(--r-xs); pointer-events: none;
+  background: rgba(var(--accent-rgb), 0.16);
+  border-radius: var(--r-sm); pointer-events: none;
 }
 
 /* minimap ----------------------------------------------------------------- */
@@ -962,7 +1108,7 @@ select:hover { background: var(--hover); }
 .detail {
   position: relative;
   display: flex; flex-direction: column;
-  flex: 0 0 auto; width: 292px;
+  flex: 0 0 auto; width: 324px;
   padding: 10px 12px 12px;
   overflow-y: auto;
   background: var(--bg);
@@ -1001,7 +1147,13 @@ select:hover { background: var(--hover); }
 .detail-title:focus { background: var(--hover); outline: none; }
 
 .field { display: flex; align-items: center; gap: 6px; min-height: 28px; }
-.field.col { flex-direction: column; align-items: stretch; gap: 2px; margin-top: 6px; }
+/* Named `stack`, not `col`: `.col` is the table's column cell, and it carries
+   `height: 100%` and a left border. A panel field wearing that class inherited
+   the panel's whole height, which is where the dead space came from. */
+.field.stack { flex-direction: column; align-items: stretch; gap: 2px; margin-top: 6px; }
+/* The label's 62px is a column width in a row field; in a stacked one the same
+   basis would become a 62px-tall label. */
+.field.stack .field-label { flex: 0 0 auto; }
 /* Column layout leaves the slack at the bottom, so Delete sits directly
    under the notes box rather than being pushed to the panel's floor. */
 .field.notes { flex: 0 0 auto; }
@@ -1028,9 +1180,9 @@ select:hover { background: var(--hover); }
   text-underline-offset: 2px;
 }
 
-.swatches { display: flex; gap: 3px; flex: 1; }
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; padding: 2px 0; }
 .swatch {
-  width: 16px; height: 16px; flex: 0 0 auto; padding: 0;
+  width: 22px; height: 22px; flex: 0 0 auto; padding: 0;
   border: 0; border-radius: 50%;
   background: var(--c);
   box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), 0.1);
@@ -1040,6 +1192,65 @@ select:hover { background: var(--hover); }
 }
 .swatch.on { box-shadow: var(--bg) 0 0 0 2px, var(--accent) 0 0 0 3.5px; }
 
+/* Colour-coded select replacement -----------------------------------------
+   Options carry their own chip, so a lane or status reads the same here as it
+   does in the table. */
+.picker-field {
+  display: flex; align-items: center; gap: 6px;
+  flex: 1; min-width: 0; min-height: 26px; padding: 2px 5px;
+  border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--text);
+  font: inherit; text-align: left;
+}
+.picker-field:hover { background: var(--hover); }
+.picker-field.open { background: var(--pressed); }
+/* A flex box, not a block: the value is a chip (`inline-block`), and inline
+   layout sits it on a text baseline, so it rode 2-3px high and gave the two
+   fields different heights. Centring it as a flex item makes the position
+   geometric and independent of the strut. Ellipsis moves to the child, since
+   it does nothing on a flex container. */
+.picker-value { display: flex; align-items: center; flex: 1; min-width: 0; }
+.picker-value > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Same for the options in the list. */
+.picker-menu .menu-label { display: flex; align-items: center; }
+.picker-chev { flex: 0 0 auto; width: 12px; height: 12px; stroke: currentColor; color: var(--text-3); }
+
+.picker-menu {
+  position: fixed; z-index: 60;
+  max-height: 280px; padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--divider);
+  border-radius: var(--r-lg);
+  background: var(--bg); box-shadow: var(--shadow-menu);
+}
+
+/* The lane's own tint, as worn in the sidebar. */
+.lane-chip {
+  display: inline-block; max-width: 100%;
+  padding: 1px 7px; border-radius: var(--r-xs);
+  background: var(--t); color: var(--c);
+  font-size: 12px; line-height: 18px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Two mutually exclusive shapes, shown as two - rather than inferred from
+   whether the End date happens to be empty. */
+.segmented {
+  display: flex; flex: 1; gap: 2px; padding: 2px;
+  border-radius: var(--r-sm); background: var(--hover);
+}
+.segmented button {
+  flex: 1; min-width: 0; height: 22px; padding: 0 8px;
+  border: 0; border-radius: var(--r-xs);
+  background: transparent; color: var(--text-2);
+  font: inherit; font-size: 12px;
+}
+.segmented button:hover { color: var(--text); }
+.segmented button.on {
+  background: var(--bg); color: var(--text); font-weight: 500;
+  box-shadow: var(--card-shadow);
+}
+
 .dep-list { display: flex; flex-direction: column; gap: 3px; }
 .dep-item {
   display: flex; align-items: center; gap: 6px;
@@ -1047,6 +1258,13 @@ select:hover { background: var(--hover); }
   background: var(--hover); font-size: 13px;
 }
 .dep-item span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The title jumps to that item, so it should read as something you can click. */
+.dep-item b { cursor: pointer; }
+.dep-item b:hover {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .dep-item button {
   border: 0; background: transparent; color: var(--text-3);
   padding: 0 2px; border-radius: var(--r-xs); line-height: 1;
@@ -1072,6 +1290,13 @@ select:hover { background: var(--hover); }
 .ctx-item.danger:hover { background: var(--t-red); }
 .ctx-item kbd { background: transparent; color: var(--text-3); }
 .ctx-sep { height: 1px; margin: 4px 6px; background: var(--divider); }
+.ctx-menu.confirm { max-width: 268px; }
+.ctx-head {
+  margin: 2px 0 0; padding: 4px 8px 0;
+  font-size: 13px; font-weight: 600; color: var(--text);
+}
+.ctx-note { margin: 0 0 4px; padding: 0 8px 2px; font-size: 12px; color: var(--text-3); }
+.ctx-menu.confirm .ctx-item { white-space: normal; height: auto; min-height: 28px; }
 .ctx-colors { display: flex; flex-wrap: wrap; gap: 4px; padding: 3px 8px 5px; }
 
 /* ----------------------------------------------------------- date picker -- */

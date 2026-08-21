@@ -137,17 +137,47 @@ function RowImpl({
   if (row.kind === 'new') {
     return (
       <div
-        className={'row new-row' + animClass}
+        className={
+          'row new-row' +
+          (row.depth ? ' nested' : '') +
+          (row.nestBottom ? ' nest-bottom' : '') +
+          animClass
+        }
         data-row-index={ghost ? undefined : index}
         data-row-kind="new"
         data-lane-id={row.laneId ?? ''}
+        data-parent-id={row.parentId ?? ''}
         style={{ top, height }}
       >
         <div className={'side' + (sidebarWidth ? '' : ' collapsed')} style={{ width: sidebarWidth }}>
+          {/* Line up with the children above, not with the lane heading. */}
+          {row.depth > 0 && <span className="grip-spacer" />}
+          {Array.from({ length: row.depth }, (_, i) => (
+            <span key={i} className="twig" />
+          ))}
+          {/* Stand-ins for the twisty and the colour dot, so the label starts
+              on the same x as the titles of the siblings above it. */}
+          {row.depth > 0 && (
+            <>
+              <span className="disclosure-spacer" />
+              <span className="dot-spacer" />
+            </>
+          )}
           <span className="new-label">
-            <span aria-hidden>+</span> New
+            <span aria-hidden>+</span> {row.parentId ? 'New sub-item' : 'New'}
           </span>
         </div>
+        {/* Matches what newItemIn() builds - today, seven days - so hovering
+            shows exactly the block you're about to create. */}
+        <div
+          className="new-outline"
+          style={{
+            left: sidebarWidth + dayToX(row.previewStart, ppd),
+            width: Math.max(6, 7 * ppd),
+            top: Math.round(height * 0.13),
+            height: height - Math.round(height * 0.13) * 2,
+          }}
+        />
       </div>
     )
   }
@@ -194,7 +224,9 @@ function RowImpl({
             <LaneEditor id={row.id} initial={row.label} />
           ) : (
             <>
-              <span className="group-label">{row.label || 'Untitled lane'}</span>
+              <button className="group-label" data-lane-menu aria-haspopup="menu">
+                {row.label || 'Untitled lane'}
+              </button>
               <span className="group-count">{row.count}</span>
             </>
           )}
@@ -374,7 +406,16 @@ export const TimelineRow = memo(RowImpl, (a, b) => {
   const x = a.row
   const y = b.row
   if (x.kind !== y.kind) return false
-  if (x.kind === 'new' || y.kind === 'new') return x.key === y.key
+  if (x.kind === 'new' || y.kind === 'new') {
+    return (
+      x.kind === 'new' &&
+      y.kind === 'new' &&
+      x.key === y.key &&
+      x.depth === y.depth &&
+      x.nestBottom === y.nestBottom &&
+      x.previewStart === y.previewStart
+    )
+  }
   if (x.kind === 'new-lane' || y.kind === 'new-lane') return x.key === y.key
   if (x.kind === 'group' && y.kind === 'group') {
     return (

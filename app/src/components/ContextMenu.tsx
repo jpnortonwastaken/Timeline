@@ -22,8 +22,18 @@ interface Row {
   run: () => void
 }
 
-export function ContextMenu({ menu, onClose }: { menu: MenuState; onClose: () => void }) {
+export function ContextMenu({
+  menu,
+  onClose,
+  leaving = false,
+}: {
+  menu: MenuState
+  onClose: () => void
+  leaving?: boolean
+}) {
   const ref = useRef<HTMLDivElement>(null)
+  /** Lane deletion asks first, in place, rather than firing a browser confirm. */
+  const [confirmLane, setConfirmLane] = useState<string | null>(null)
   const [pos, setPos] = useState({ left: menu.x, top: menu.y })
 
   const items = useStore((s) => s.items)
@@ -51,7 +61,7 @@ export function ContextMenu({ menu, onClose }: { menu: MenuState; onClose: () =>
       left: Math.max(6, Math.min(menu.x, window.innerWidth - width - 6)),
       top: Math.max(6, Math.min(menu.y, window.innerHeight - height - 6)),
     })
-  }, [menu.x, menu.y, menu.target])
+  }, [menu.x, menu.y, menu.target, confirmLane])
 
   useEffect(() => {
     // This listener is on document in the *capture* phase, so without the
@@ -187,7 +197,9 @@ export function ContextMenu({ menu, onClose }: { menu: MenuState; onClose: () =>
             {
               label: 'Delete lane',
               danger: true,
-              run: run(() => deleteLane(gid)),
+              // Two-step: what happens to the blocks inside is the real
+              // question, and it isn't reversible by guessing.
+              run: () => setConfirmLane(gid),
             },
           ]
         : []),
@@ -209,8 +221,49 @@ export function ContextMenu({ menu, onClose }: { menu: MenuState; onClose: () =>
     ]
   }
 
+  if (confirmLane) {
+    const lane = lanes[confirmLane]
+    const inside = Object.values(items).filter((i) => i.laneId === confirmLane).length
+    return (
+      <div className={'ctx-menu confirm pop' + (leaving ? ' leaving' : '')} ref={ref} style={pos}>
+        <p className="ctx-head">
+          Delete “{lane?.name || 'Untitled lane'}”?
+        </p>
+        <p className="ctx-note">
+          {inside === 0
+            ? 'This lane is empty.'
+            : `${inside} block${inside === 1 ? '' : 's'} ${inside === 1 ? 'is' : 'are'} in it.`}
+        </p>
+        <button
+          className="ctx-item"
+          onClick={run(() => deleteLane(confirmLane, false))}
+        >
+          <span>{inside === 0 ? 'Delete lane' : 'Delete lane, keep the blocks'}</span>
+        </button>
+        {inside > 0 && (
+          <button
+            className="ctx-item danger"
+            onClick={run(() => deleteLane(confirmLane, true))}
+          >
+            <span>Delete lane and its {inside} block{inside === 1 ? '' : 's'}</span>
+          </button>
+        )}
+        <div className="ctx-sep" />
+        <button className="ctx-item" onClick={() => setConfirmLane(null)}>
+          <span>Cancel</span>
+          <kbd>esc</kbd>
+        </button>
+      </div>
+    )
+  }
+
   return (
-    <div className="ctx-menu" ref={ref} style={pos} onContextMenu={(e) => e.preventDefault()}>
+    <div
+      className={'ctx-menu pop' + (leaving ? ' leaving' : '')}
+      ref={ref}
+      style={pos}
+      onContextMenu={(e) => e.preventDefault()}
+    >
       {rows.map((r, i) => (
         <button
           key={i}
