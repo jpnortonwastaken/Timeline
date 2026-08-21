@@ -38,7 +38,7 @@ interface Reveal {
   exit: { row: TreeRow; top: number }[]
 }
 
-type Mode = 'move' | 'start' | 'end' | 'create' | 'link' | 'marquee' | 'reorder'
+type Mode = 'move' | 'start' | 'end' | 'create' | 'link' | 'marquee' | 'reorder' | 'new-lane'
 
 interface Drag {
   mode: Mode
@@ -328,6 +328,9 @@ export function Timeline() {
   const rowH = DENSITY_HEIGHT[density]
   const rowsHeight = rows.length * rowH
   const contentWidth = sidebarWidth + totalWidth(ppd)
+  /** Rows plus slack, but never less than the viewport - otherwise the grid
+      stops mid-air and the page below it reads as a rendering fault. */
+  const bodyHeight = Math.max(rowsHeight + 120, view.h - HEADER_HEIGHT)
   const tier = tierFor(ppd)
   const today = todayDay()
 
@@ -798,7 +801,9 @@ export function Timeline() {
     const rect = layerRef.current?.getBoundingClientRect()
     if (!rect) return todayDay()
     const x = clientX - rect.left - sidebarRef.current
-    return snapDay(Math.round(xToDay(x, ppdRef.current)), tierFor(ppdRef.current).snap)
+    // Always days. The tier's snap unit grows to weeks and months when zoomed
+    // out, which makes the preview leap around under the cursor.
+    return snapDay(Math.round(xToDay(x, ppdRef.current)), 'day')
   }
 
   /** Is this client x out on the canvas, rather than over the table column? */
@@ -920,6 +925,8 @@ export function Timeline() {
       dragRef.current = {
         ...base,
         mode: 'create',
+        // Days, matching the preview that led you here.
+        snapUnit: 'day',
         anchorDay: anchor,
         origStart: anchor,
         origEnd: anchor,
@@ -936,9 +943,16 @@ export function Timeline() {
       capture()
       return
     }
-    if (kind === 'new-lane') {
+    // Only the table column makes a lane - a lane isn't something you place on
+    // the canvas. Out on the canvas this row falls through to the ordinary
+    // empty-canvas gestures below, so it can still be marquee-dragged or
+    // cmd-dragged like any other empty space.
+    if (kind === 'new-lane' && target.closest('.side')) {
       e.preventDefault()
-      setEditingLane(createLane('New lane'))
+      // Armed here, made on release - so a press you drag away from or think
+      // better of doesn't leave a lane behind.
+      dragRef.current = { ...base, mode: 'new-lane' }
+      capture()
       return
     }
     // Lane title -> its menu, anchored under the title like Notion does.
@@ -1046,7 +1060,7 @@ export function Timeline() {
     }
 
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    const anchor = snapDay(Math.round(xToDay(e.clientX - rect.left - sw, perDay)), snapUnit)
+    const anchor = snapDay(Math.round(xToDay(e.clientX - rect.left - sw, perDay)), 'day')
     const row = rows[Number(rowEl.dataset.rowIndex)]
     // No defaultDays: out here a press that never moves is just a click, and
     // clicking bare canvas must not leave a block behind.
@@ -1071,6 +1085,10 @@ export function Timeline() {
     dragRef.current = {
       ...base,
       mode: 'create',
+      // Creating always works in whole days. The tier's snap unit is right for
+      // nudging something that already exists, but drawing a new block at year
+      // zoom in month-sized jumps just feels broken.
+      snapUnit: 'day',
       anchorDay: anchor,
       origStart: anchor,
       origEnd: anchor,
@@ -1391,6 +1409,12 @@ export function Timeline() {
     // values, and those must snap back, not glide.
     for (const el of dragSmoothEls(d)) el.classList.remove('drag-smooth')
 
+    if (d.mode === 'new-lane') {
+      // Only a press that stayed put counts, the way a button does.
+      if (!d.moved) setEditingLane(createLane('New lane'))
+      return
+    }
+
     if (d.mode === 'link') {
       setLinkingActive(false)
       if (d.linkTarget) {
@@ -1568,7 +1592,7 @@ export function Timeline() {
       <div className="scroller" id="timeline-canvas" ref={scrollerRef} onScroll={syncView}>
         <div
           className="content"
-          style={{ width: contentWidth, height: HEADER_HEIGHT + rowsHeight + 120 }}
+          style={{ width: contentWidth, height: HEADER_HEIGHT + bodyHeight }}
         >
           {/* ---- header ---- */}
           <div className="head" style={{ height: HEADER_HEIGHT }}>
@@ -1630,7 +1654,7 @@ export function Timeline() {
           </div>
 
           {/* ---- grid ---- */}
-          <div className="grid" style={{ top: HEADER_HEIGHT, height: rowsHeight + 120 }}>
+          <div className="grid" style={{ top: HEADER_HEIGHT, height: bodyHeight }}>
             {minorTicks.map((t) => (
               <div
                 key={'g' + t.day}
@@ -1648,14 +1672,14 @@ export function Timeline() {
               column's background and rule down through the empty space below. */}
           <div
             className="side-backdrop"
-            style={{ width: sidebarWidth, height: rowsHeight + 120, display: sidebarWidth ? undefined : 'none' }}
+            style={{ width: sidebarWidth, height: bodyHeight, display: sidebarWidth ? undefined : 'none' }}
           />
 
           {/* ---- rows ---- */}
           <div
             className={'layer' + (reveal ? ' revealing' : '')}
             ref={layerRef}
-            style={{ top: HEADER_HEIGHT, height: rowsHeight + 120 }}
+            style={{ top: HEADER_HEIGHT, height: bodyHeight }}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
@@ -1780,12 +1804,6 @@ export function Timeline() {
       )}
       <div className="drag-tip" ref={tipRef} />
       {sidebarOpen && <SidebarResizer />}
-      {!rows.some((r) => r.kind === 'item') && (
-        <div className="empty-state">
-          <p>Nothing here yet.</p>
-          <p className="muted">Drag anywhere on the canvas to block out time.</p>
-        </div>
-      )}
       <span className="sr-only" aria-live="polite">
         {indexById.size} items
       </span>

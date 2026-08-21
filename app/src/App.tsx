@@ -25,6 +25,8 @@ export default function App() {
   const themeMode = useStore((s) => s.themeMode)
   const selection = useStore((s) => s.selection)
   const showMinimap = useStore((s) => s.showMinimap)
+  // A boolean selector, so App only re-renders when it actually flips.
+  const noItems = useStore((s) => Object.keys(s.items).length === 0)
   const detailOpen = useStore((s) => s.detailOpen)
 
   const items = useStore((s) => s.items)
@@ -300,7 +302,7 @@ export default function App() {
         <Timeline />
         {selection.length > 0 && detailOpen && <DetailPanel />}
       </div>
-      {showMinimap && <Minimap />}
+      {showMinimap && !noItems && <Minimap />}
       <footer className="statusbar">
         <span className="hint"><kbd>drag</kbd> canvas to select</span>
         <span className="hint"><kbd>⌘</kbd>drag canvas to create</span>

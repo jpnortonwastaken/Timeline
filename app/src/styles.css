@@ -636,7 +636,7 @@ body[data-drag='end'] .edge-label {
   box-shadow: inset 0 -1px 0 var(--divider);
 }
 .side.collapsed { padding: 0; border-right: 0; }
-.row:hover .side { background-image: linear-gradient(var(--row-hover), var(--row-hover)); }
+.row:not(.new-lane-row):hover .side { background-image: linear-gradient(var(--row-hover), var(--row-hover)); }
 .row.selected .side { background-image: linear-gradient(var(--row-selected), var(--row-selected)); }
 
 /* Tree guides: one 16px cell per ancestor level, sitting after the drag grip.
@@ -756,7 +756,8 @@ body[data-drag='end'] .edge-label {
    newItemIn(), so the hover shows exactly what you're about to get. */
 .new-outline {
   position: absolute; z-index: 1;
-  border: 1px dashed var(--divider-strong);
+  border: 1.5px dashed var(--text-3);
+  background: rgba(var(--ink-rgb), 0.04);
   border-radius: var(--r-md);
   opacity: 0; pointer-events: none;
   /* Days snap, so the preview would otherwise hop between whole units. */
@@ -765,7 +766,20 @@ body[data-drag='end'] .edge-label {
 /* The drag ghost takes over once a create gesture starts. */
 body[data-drag] .new-outline { opacity: 0; }
 .new-row:hover .new-outline { opacity: 1; }
-.new-row:hover .side { color: var(--text-2); }
+.new-row:not(.new-lane-row):hover .side { color: var(--text-2); }
+
+/* The new-lane row only acts in the table column, so neither half should light
+   up while the pointer is out on the canvas. The generic row-hover rules above
+   exclude it by `:not()` rather than being overridden here - a cancelling rule
+   is more specific than the one that would restore the highlight on cell
+   hover, so it would win there too and the cell would never light up at all.
+   The whole cell is the target, not just the words. */
+.row.new-lane-row:hover { background: transparent; }
+.new-lane-row .side { cursor: pointer; }
+.new-lane-row .side:hover {
+  background-image: linear-gradient(var(--row-hover), var(--row-hover));
+  color: var(--text-2);
+}
 .new-label { display: flex; align-items: center; gap: 6px; font-size: 14px; padding-left: 4px; }
 
 /* bars -------------------------------------------------------------------- */
@@ -1099,10 +1113,7 @@ body[data-drag='end'] .head-range {
   pointer-events: none;
 }
 
-.empty-state {
-  position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%);
-  text-align: center; pointer-events: none; color: var(--text-3);
-}
+
 
 /* --------------------------------------------------------------- detail --- */
 .detail {

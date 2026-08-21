@@ -185,7 +185,7 @@ function RowImpl({
   if (row.kind === 'new-lane') {
     return (
       <div
-        className={'row new-row' + animClass}
+        className={'row new-row new-lane-row' + animClass}
         data-row-index={ghost ? undefined : index}
         data-row-kind="new-lane"
         style={{ top, height }}

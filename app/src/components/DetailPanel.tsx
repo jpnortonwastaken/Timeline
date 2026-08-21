@@ -19,7 +19,11 @@ export function DetailPanel() {
   const select = useStore((s) => s.select)
   const setDetailOpen = useStore((s) => s.setDetailOpen)
 
-  const id = selection.length === 1 ? selection[0] : null
+  // A selection can outlive what it points at - undoing a create, for one - and
+  // an empty panel offering "Select an item" next to an empty timeline reads as
+  // broken. Judge by what actually resolves.
+  const live = selection.filter((sid) => items[sid])
+  const id = live.length === 1 ? live[0] : null
   const item = id ? items[id] : null
 
   const collapse = (
@@ -34,12 +38,11 @@ export function DetailPanel() {
   )
 
   if (!item) {
+    if (!live.length) return null
     return (
       <aside className="detail empty">
         {collapse}
-        <p className="muted">
-          {selection.length > 1 ? `${selection.length} items selected` : 'Select an item'}
-        </p>
+        <p className="muted">{live.length} items selected</p>
       </aside>
     )
   }
