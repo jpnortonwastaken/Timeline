@@ -20,7 +20,7 @@ import { writeBackup } from './lib/tauri'
 
 const STORAGE_KEY = 'timeline.v1'
 const LEGACY_KEY = 'linea.v1'
-const VERSION = 1
+const VERSION = 2
 const HISTORY_LIMIT = 100
 
 export const ALL_COLUMNS = ['dates', 'status', 'span'] as const
@@ -29,6 +29,8 @@ export interface State extends Snapshot {
   ppd: number
   autoShift: boolean
   showMinimap: boolean
+  /** Draw the overview's window box full height, ignoring the row band. */
+  minimapFullHeight: boolean
   /** Collapse state for the synthetic "No lane" group, which has no Lane record. */
   noLaneCollapsed: boolean
   sidebarWidth: number
@@ -40,6 +42,15 @@ export interface State extends Snapshot {
   /** Visible day range, republished by Timeline on scroll. Not persisted. */
   viewFrom: number
   viewTo: number
+  /** Visible row band, as fractional row indices. Same deal. */
+  viewRowFrom: number
+  viewRowTo: number
+  /**
+   * Childless blocks currently showing an empty "+ New sub-item" line. Purely
+   * a view state - it isn't in the persist payload, so it doesn't survive a
+   * restart, which is right for something you opened to type one thing into.
+   */
+  draftChildren: Record<ItemId, true>
 
   selection: ItemId[]
   editingId: ItemId | null
@@ -87,6 +98,7 @@ export interface Actions {
   /** `withItems` deletes the lane's blocks and their subtrees too; without it
       they survive, just unfiled. */
   deleteLane: (id: LaneId, withItems?: boolean) => void
+  reorderLane: (id: LaneId, targetId: LaneId, position: 'before' | 'after') => void
 
   // view
   setPpd: (ppd: number) => void
@@ -99,9 +111,11 @@ export interface Actions {
   setSearch: (s: string) => void
   toggleAutoShift: () => void
   toggleMinimap: () => void
+  toggleMinimapFullHeight: () => void
 
   // collapse
   toggleCollapse: (id: ItemId) => void
+  toggleDraftChild: (id: ItemId) => void
   toggleLaneCollapse: (id: LaneId) => void
   expandAll: () => void
   collapseAll: () => void
@@ -111,7 +125,7 @@ export interface Actions {
   toggleSelect: (id: ItemId) => void
   setEditing: (id: ItemId | null) => void
   setEditingLane: (id: LaneId | null) => void
-  setViewRange: (from: number, to: number) => void
+  setViewRange: (from: number, to: number, rowFrom: number, rowTo: number) => void
   setDetailOpen: (open: boolean) => void
 
   // data
@@ -119,7 +133,6 @@ export interface Actions {
   importJSON: (raw: string) => void
   /** Replace everything without touching undo history (startup restore). */
   hydrate: (raw: string) => void
-  resetToSeed: () => void
 }
 
 const snapshot = (s: State): Snapshot => ({ items: s.items, lanes: s.lanes, deps: s.deps })
@@ -140,13 +153,40 @@ function subtree(items: Record<ItemId, Item>, root: ItemId): Set<ItemId> {
   return out
 }
 
+/**
+ * v1 -> v2: every milestone becomes a one-day block.
+ *
+ * A block with no end date renders as a milestone. That is how a Notion export
+ * lands - single-day entries arrive with only a start - and it isn't what was
+ * wanted here. Ending each on its own start day makes it an ordinary block
+ * without inventing a duration the data never had.
+ *
+ * One-shot, gated on the stored version: milestones made deliberately after
+ * this upgrade are left alone.
+ */
+function migrateV1(parsed: Record<string, unknown>): Partial<PersistedState> {
+  const items = { ...((parsed.items ?? {}) as Record<string, Item>) }
+  for (const [id, item] of Object.entries(items)) {
+    if (item?.end == null && item?.start) {
+      items[id] = {
+        ...item,
+        end: { date: item.start.date, precision: item.start.precision },
+      }
+    }
+  }
+  return { ...parsed, items, version: VERSION } as Partial<PersistedState>
+}
+
 function load(): Partial<PersistedState> | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    if (parsed?.version !== VERSION) return null
-    return parsed
+    if (parsed?.version === VERSION) return parsed
+    // Upgrade rather than discard - returning null here would drop the whole
+    // plan on the floor and reseed.
+    if (parsed?.version === 1) return migrateV1(parsed)
+    return null
   } catch {
     return null
   }
@@ -167,6 +207,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   autoShift: persisted?.autoShift ?? true,
   noLaneCollapsed: persisted?.noLaneCollapsed ?? false,
   showMinimap: persisted?.showMinimap ?? true,
+  minimapFullHeight: persisted?.minimapFullHeight ?? false,
   sidebarWidth: persisted?.sidebarWidth ?? 360,
   sidebarOpen: persisted?.sidebarOpen ?? true,
   density: persisted?.density ?? 'normal',
@@ -175,6 +216,9 @@ export const useStore = create<State & Actions>((set, get) => ({
 
   viewFrom: todayDay() - 180,
   viewTo: todayDay() + 180,
+  viewRowFrom: 0,
+  viewRowTo: 0,
+  draftChildren: {},
 
   selection: [],
   editingId: null,
@@ -451,6 +495,25 @@ export const useStore = create<State & Actions>((set, get) => ({
     set((s) => ({ lanes: { ...s.lanes, [id]: { ...s.lanes[id], ...patch } } }))
   },
 
+  reorderLane: (id, targetId, position) => {
+    const s = get()
+    if (id === targetId || !s.lanes[id] || !s.lanes[targetId]) return
+    get().commit()
+    set((st) => {
+      // Rebuild the sequence and renumber, rather than nudging one order value
+      // - the existing numbers can have gaps or ties from earlier edits.
+      const ordered = Object.values(st.lanes)
+        .sort((a, b) => a.order - b.order)
+        .filter((l) => l.id !== id)
+      const at = ordered.findIndex((l) => l.id === targetId)
+      if (at < 0) return st
+      ordered.splice(position === 'before' ? at : at + 1, 0, st.lanes[id])
+      const lanes = { ...st.lanes }
+      ordered.forEach((l, i) => (lanes[l.id] = { ...lanes[l.id], order: i }))
+      return { lanes }
+    })
+  },
+
   deleteLane: (id, withItems) => {
     get().commit()
     set((s) => {
@@ -509,8 +572,18 @@ export const useStore = create<State & Actions>((set, get) => ({
   setSearch: (search) => set({ search }),
   toggleAutoShift: () => set((s) => ({ autoShift: !s.autoShift })),
   toggleMinimap: () => set((s) => ({ showMinimap: !s.showMinimap })),
+  toggleMinimapFullHeight: () =>
+    set((s) => ({ minimapFullHeight: !s.minimapFullHeight })),
 
   // -- collapse --------------------------------------------------------------
+  toggleDraftChild: (id) =>
+    set((s) => {
+      const next = { ...s.draftChildren }
+      if (next[id]) delete next[id]
+      else next[id] = true
+      return { draftChildren: next }
+    }),
+
   toggleCollapse: (id) =>
     set((s) => ({ items: { ...s.items, [id]: { ...s.items[id], collapsed: !s.items[id].collapsed } } })),
 
@@ -552,8 +625,15 @@ export const useStore = create<State & Actions>((set, get) => ({
     })),
   setEditing: (editingId) => set({ editingId }),
   setEditingLane: (editingLaneId) => set({ editingLaneId }),
-  setViewRange: (viewFrom, viewTo) =>
-    set((s) => (s.viewFrom === viewFrom && s.viewTo === viewTo ? s : { viewFrom, viewTo })),
+  setViewRange: (viewFrom, viewTo, viewRowFrom, viewRowTo) =>
+    set((s) =>
+      s.viewFrom === viewFrom &&
+      s.viewTo === viewTo &&
+      s.viewRowFrom === viewRowFrom &&
+      s.viewRowTo === viewRowTo
+        ? s
+        : { viewFrom, viewTo, viewRowFrom, viewRowTo },
+    ),
   setDetailOpen: (detailOpen) => set({ detailOpen }),
 
   // -- data ------------------------------------------------------------------
@@ -574,15 +654,13 @@ export const useStore = create<State & Actions>((set, get) => ({
   },
 
   hydrate: (raw) => {
-    const parsed = JSON.parse(raw)
+    let parsed = JSON.parse(raw)
     if (!parsed?.items) return
+    // A backup file can predate the current version, same as localStorage.
+    if (parsed.version === 1) parsed = migrateV1(parsed)
     set({ items: parsed.items, lanes: parsed.lanes ?? {}, deps: parsed.deps ?? {}, past: [], future: [] })
   },
 
-  resetToSeed: () => {
-    get().commit()
-    set({ ...seed(), selection: [] })
-  },
 }))
 
 export const statusLabel: Record<Status, string> = {
@@ -607,6 +685,7 @@ useStore.subscribe((s) => {
       autoShift: s.autoShift,
       noLaneCollapsed: s.noLaneCollapsed,
       showMinimap: s.showMinimap,
+      minimapFullHeight: s.minimapFullHeight,
       sidebarWidth: s.sidebarWidth,
       sidebarOpen: s.sidebarOpen,
       density: s.density,

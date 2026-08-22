@@ -41,7 +41,7 @@
 
   /* Expand/collapse reveal. Keep --reveal in step with REVEAL_MS in
      Timeline.tsx, which decides how long the fading-out rows stay mounted. */
-  --reveal: 190ms;
+  --reveal: 240ms;
   --reveal-ease: cubic-bezier(0.32, 0.72, 0, 1);
   --card-shadow: rgba(15, 15, 15, 0.05) 0 1px 2px;
   --today: rgb(216, 79, 71);
@@ -542,7 +542,10 @@ body[data-drag='end'] .edge-label {
   background: var(--bg); box-shadow: var(--card-shadow);
   color: var(--text-3); font-size: 12px; white-space: nowrap;
   opacity: 0.8;
-  transition: opacity 0.1s ease, color 0.1s ease;
+  transition:
+    opacity 0.1s ease,
+    color 0.1s ease,
+    top var(--reveal) var(--reveal-ease);
 }
 .jump:hover { opacity: 1; color: var(--text); }
 .jump-right { transform: translateX(-100%); }
@@ -562,13 +565,46 @@ body[data-drag='end'] .edge-label {
    Declared before :hover and .selected so those still win on the background.
    The sticky table cell is opaque and sits above this, so the shading only
    reads on the canvas - which is exactly where nesting was invisible. */
-.row.nested { background-color: var(--nest-wash); }
-.row.nest-top { box-shadow: inset 0 7px 7px -8px var(--nest-shadow); }
-.row.nest-bottom { box-shadow: inset 0 -7px 7px -8px var(--nest-shadow); }
-.row.nest-top.nest-bottom {
+/* The recessed well is one element per nested run, drawn behind the rows,
+   rather than painted slice-by-slice on each row. A per-row wash can only
+   fade with its row; a single element's top and height transition, so the
+   well grows open and shrinks closed in step with the rows gliding around it
+   - same clock, same curve. Runs keep their element while they merely gain or
+   lose rows, which is what makes the height glide instead of remounting. */
+.nest-well {
+  position: absolute; left: 0; right: 0;
+  pointer-events: none;
+  background: var(--nest-wash);
   box-shadow:
     inset 0 7px 7px -8px var(--nest-shadow),
     inset 0 -7px 7px -8px var(--nest-shadow);
+  transition:
+    top var(--reveal) var(--reveal-ease),
+    height var(--reveal) var(--reveal-ease);
+}
+/* Deeper runs draw only their edges - stacking the wash would darken with
+   depth, which the old per-row painting never did. */
+.nest-well.inner { background: transparent; }
+.nest-well.in { animation: well-in var(--reveal) var(--reveal-ease); }
+.nest-well.out { animation: well-out var(--reveal) var(--reveal-ease) both; }
+@keyframes well-in { from { height: 0; opacity: 0; } }
+@keyframes well-out { to { height: 0; opacity: 0; } }
+
+/* Wraps one contiguous run of departing ghost rows and clips it away from
+   the bottom, in step with the well shrinking and the rows below gliding up.
+   clip-path rather than overflow or transform: either of those would turn
+   this wrapper into the containing block / scrollport for the sticky table
+   cells inside, detaching them mid-animation. (clip-path does re-anchor
+   absolutely positioned children - the ghosts' tops are made wrapper-relative
+   for exactly that reason.) */
+.exit-clip {
+  position: absolute; left: 0; right: 0;
+  pointer-events: none;
+  animation: clip-out var(--reveal) var(--reveal-ease) both;
+}
+@keyframes clip-out {
+  from { clip-path: inset(0 0 0 0); opacity: 1; }
+  to { clip-path: inset(0 0 100% 0); opacity: 0; }
 }
 .row:hover { background: var(--row-hover); }
 
@@ -607,16 +643,27 @@ body[data-drag='end'] .edge-label {
    land on their final geometry the instant the list changes - while the bars
    they point at are still gliding there. Rather than show arrows hanging off
    the wrong bars, drop them for the duration (instantly, so a wrong frame is
-   never painted) and fade them back once the rows have settled. */
-.deps, .jump-layer { transition: opacity 140ms ease; }
-.layer.revealing .deps,
-.layer.revealing .jump-layer {
+   never painted) and fade them back once the rows have settled.
+
+   The jump markers are NOT hidden with them, though they're positioned the
+   same way. At wide zooms most bars are off screen, so markers are most of
+   what the canvas shows - blanking them made the whole timeline side of an
+   expand read as an instant pop while the table glided. They're keyed by item
+   and placed at index * rowH, so a `top` transition glides them with their
+   rows instead. */
+.deps { transition: opacity 140ms ease; }
+.layer.revealing .deps {
   opacity: 0;
   transition: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .row { transition: none; }
+  .nest-well { transition: none; }
+  .nest-well.in, .nest-well.out { animation: none; }
+  .nest-well.out { opacity: 0; }
+  .exit-clip { animation: none; opacity: 0; }
+  .jump { transition: opacity 0.1s ease, color 0.1s ease; }
   .deps, .jump-layer { transition: none; }
   .row.anim-enter, .row.anim-exit { animation: none; }
   .row.anim-exit { opacity: 0; }
@@ -685,6 +732,31 @@ body[data-drag='end'] .edge-label {
 }
 .disclosure:hover { background: var(--hover); color: var(--text); }
 .disclosure-spacer { flex: 0 0 auto; width: 18px; }
+
+/* The twisty on a block with no children yet: slides in from the left on
+   hover, and stays put while its draft line is open. Transform on the button
+   only - `.side` is sticky, and a transform on any ancestor of it would
+   detach the pinned column. */
+.draft-twisty .chev { transition: transform 0.2s cubic-bezier(0.32, 0.72, 0, 1); }
+.draft-twisty {
+  opacity: 0;
+  transform: translateX(-5px);
+  transition:
+    opacity 0.14s ease,
+    transform 0.18s cubic-bezier(0.32, 0.72, 0, 1);
+}
+/* Scoped to `.side`: the twisty on the bar has its own trigger below, so that
+   one doesn't light up merely because the row is hovered. */
+.row:hover .side .draft-twisty,
+.draft-twisty.on,
+.draft-twisty:focus-visible {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .draft-twisty { transition: none; transform: none; }
+  .bar-chev.draft-twisty, .bar-chev.draft-twisty .chev { transition: none; }
+}
 .chev { width: 12px; height: 12px; stroke: currentColor; transition: transform 0.13s ease; }
 .chev.open { transform: rotate(90deg); }
 
@@ -752,6 +824,12 @@ body[data-drag='end'] .edge-label {
 .group-add:hover { background: var(--hover); color: var(--text); }
 
 .new-row .side { color: var(--text-3); cursor: pointer; }
+/* A "+ New" item line makes a block wherever you press, so the whole line -
+   table column included - carries the same crosshair the canvas uses for
+   drawing one out. The `:not()` keeps the new-lane line on a pointer: that one
+   is a button, not a place on the timeline. */
+.new-row:not(.new-lane-row),
+.new-row:not(.new-lane-row) .side { cursor: crosshair; }
 /* Preview of the block "+ New" would create - same span and position as
    newItemIn(), so the hover shows exactly what you're about to get. */
 .new-outline {
@@ -819,6 +897,44 @@ body[data-drag] .new-outline { opacity: 0; }
 }
 .bar-inner.outside .bar-label { color: var(--text-2); font-weight: 400; }
 .bar-chev { width: 15px; height: 15px; margin-left: -3px; color: var(--text-2); }
+/* Out of view it takes no width, so labels aren't permanently indented by a
+   twisty that isn't there. The box itself never fades - it is only a clipping
+   window - and the glyph inside does all the fading. Fading both looked muddy,
+   two overlapping fades on the same 15px.
+
+   The timing is deliberately asymmetric, because a single delay applies in
+   both directions and that is what made leaving look wrong: the glyph would
+   hang about for 70ms and then get chopped off by the closing width. */
+.bar-chev.draft-twisty {
+  width: 0; margin-left: 0; overflow: hidden;
+  opacity: 1;
+  transform: none;
+  transition:
+    width 0.22s cubic-bezier(0.32, 0.72, 0, 1),
+    margin-left 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+}
+/* Leaving: fade out immediately, and the space closes behind it. `transform`
+   has to stay in this list - `.chev` animates it for the open/closed rotation,
+   and naming only `opacity` here replaced that and made the arrow snap. */
+.bar-chev.draft-twisty .chev {
+  opacity: 0;
+  transition:
+    opacity 0.14s ease,
+    transform 0.2s cubic-bezier(0.32, 0.72, 0, 1);
+}
+/* Only while the block itself is hovered - not the whole row. */
+.bar:hover .bar-chev.draft-twisty,
+.bar-chev.draft-twisty.on,
+.bar-chev.draft-twisty:focus-visible { width: 15px; margin-left: -3px; }
+/* Arriving: let the space open first, then fade into it. */
+.bar:hover .bar-chev.draft-twisty .chev,
+.bar-chev.draft-twisty.on .chev,
+.bar-chev.draft-twisty:focus-visible .chev {
+  opacity: 1;
+  transition:
+    opacity 0.22s ease 0.08s,
+    transform 0.2s cubic-bezier(0.32, 0.72, 0, 1);
+}
 .bar-chev .chev { width: 11px; height: 11px; }
 
 /* An explicitly chosen color tints the card; inherited lane color does not. */
@@ -1085,8 +1201,11 @@ body[data-drag='end'] .head-range {
   padding-left: 4px; padding-top: 1px;
 }
 .mini-today { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--today); }
+/* `top` and `height` come from the component - the box shows the vertical
+   slice of rows on screen as well as the date range, so it is the actual
+   viewport rather than a full-height column. */
 .mini-window {
-  position: absolute; top: 0; bottom: 0;
+  position: absolute;
   background: rgba(var(--ink-rgb), 0.07);
   box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), 0.3);
   border-radius: var(--r-xs); cursor: grab;
@@ -1289,8 +1408,18 @@ body[data-drag='end'] .head-range {
   background: var(--bg); border-radius: var(--r-lg);
   box-shadow: var(--shadow-menu);
 }
+/* One glyph per row, on a shared 16px box, so the labels line up in a column
+   and the menu can be read down the icons. */
+.menu-icon {
+  flex: 0 0 auto; width: 16px; height: 16px;
+  color: var(--text-3);
+}
+.ctx-item:hover .menu-icon, .menu-item:hover .menu-icon { color: var(--text-2); }
+.ctx-item.danger .menu-icon { color: inherit; }
+.ctx-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
 .ctx-item {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  display: flex; align-items: center; gap: 9px;
   width: 100%; padding: 5px 8px;
   border: 0; border-radius: var(--r-sm);
   background: transparent; color: var(--text);

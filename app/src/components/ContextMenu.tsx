@@ -1,8 +1,24 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useStore } from '../store'
 import { COLORS } from '../lib/colors'
 import { dayToIso, isoToDay, todayDay } from '../lib/time'
 import type { ItemId } from '../types'
+import {
+  IconCollapseAll,
+  IconCollapseLane,
+  IconDelete,
+  IconDone,
+  IconDuplicate,
+  IconExpandAll,
+  IconInProgress,
+  IconLane,
+  IconMilestone,
+  IconPlus,
+  IconRename,
+  IconSpan,
+  IconSubItem,
+} from './icons'
 
 export type MenuTarget =
   | { kind: 'item'; id: ItemId }
@@ -19,6 +35,8 @@ interface Row {
   label: string
   hint?: string
   danger?: boolean
+  /** Every row carries one, so the menu reads as a column of actions. */
+  icon: ReactNode
   run: () => void
 }
 
@@ -110,10 +128,11 @@ export function ContextMenu({
     rows = [
       ...(many
         ? []
-        : [{ label: 'Rename', hint: '↵', run: run(() => setEditing(id)) }]),
+        : [{ label: 'Rename', hint: '↵', icon: <IconRename />, run: run(() => setEditing(id)) }]),
       {
         label: many ? `Duplicate ${target.length} items` : 'Duplicate',
         hint: '⌘D',
+        icon: <IconDuplicate />,
         run: run(() => duplicateItems(target)),
       },
       ...(many
@@ -121,6 +140,7 @@ export function ContextMenu({
         : [
             {
               label: 'Add sub-item',
+              icon: <IconSubItem />,
               run: run(() => {
                 const start = item.start ? isoToDay(item.start.date) : todayDay()
                 const kid = createItem({
@@ -136,6 +156,7 @@ export function ContextMenu({
           ]),
       {
         label: item.status === 'done' ? 'Mark as in progress' : 'Mark as done',
+        icon: item.status === 'done' ? <IconInProgress /> : <IconDone />,
         run: run(() =>
           target.forEach((t) =>
             updateItem(t, { status: item.status === 'done' ? 'active' : 'done' }, true),
@@ -147,6 +168,7 @@ export function ContextMenu({
         : [
             {
               label: item.end ? 'Turn into milestone' : 'Give it a span',
+              icon: item.end ? <IconMilestone /> : <IconSpan />,
               run: run(() =>
                 updateItem(id, {
                   end: item.end
@@ -163,6 +185,7 @@ export function ContextMenu({
         label: many ? `Delete ${target.length} items` : 'Delete',
         hint: '⌫',
         danger: true,
+        icon: <IconDelete />,
         run: run(() => deleteItems(target)),
       },
     ]
@@ -177,6 +200,7 @@ export function ContextMenu({
     rows = [
       {
         label: 'New item in this lane',
+        icon: <IconPlus />,
         run: run(() => {
           const t = todayDay()
           const nid = createItem({
@@ -187,16 +211,23 @@ export function ContextMenu({
           setEditing(nid)
         }),
       },
-      ...(real ? [{ label: 'Rename lane', run: run(() => setEditingLane(gid)) }] : []),
-      { label: 'New lane', run: run(() => setEditingLane(createLane('New lane'))) },
-      { label: 'Collapse this lane', run: run(() => toggleLaneCollapse(gid)) },
-      { label: 'Expand everything', hint: 'E', run: run(expandAll) },
-      { label: 'Collapse everything', hint: '⇧E', run: run(collapseAll) },
+      ...(real
+        ? [{ label: 'Rename lane', icon: <IconRename />, run: run(() => setEditingLane(gid)) }]
+        : []),
+      {
+        label: 'New lane',
+        icon: <IconLane />,
+        run: run(() => setEditingLane(createLane('New lane'))),
+      },
+      { label: 'Collapse this lane', icon: <IconCollapseLane />, run: run(() => toggleLaneCollapse(gid)) },
+      { label: 'Expand everything', hint: 'E', icon: <IconExpandAll />, run: run(expandAll) },
+      { label: 'Collapse everything', hint: '⇧E', icon: <IconCollapseAll />, run: run(collapseAll) },
       ...(real
         ? [
             {
               label: 'Delete lane',
               danger: true,
+              icon: <IconDelete />,
               // Two-step: what happens to the blocks inside is the real
               // question, and it isn't reversible by guessing.
               run: () => setConfirmLane(gid),
@@ -209,6 +240,7 @@ export function ContextMenu({
     rows = [
       {
         label: 'New item here',
+        icon: <IconPlus />,
         run: run(() => {
           const nid = createItem({
             laneId,
@@ -238,14 +270,20 @@ export function ContextMenu({
           className="ctx-item"
           onClick={run(() => deleteLane(confirmLane, false))}
         >
-          <span>{inside === 0 ? 'Delete lane' : 'Delete lane, keep the blocks'}</span>
+          <IconLane />
+          <span className="ctx-label">
+            {inside === 0 ? 'Delete lane' : 'Delete lane, keep the blocks'}
+          </span>
         </button>
         {inside > 0 && (
           <button
             className="ctx-item danger"
             onClick={run(() => deleteLane(confirmLane, true))}
           >
-            <span>Delete lane and its {inside} block{inside === 1 ? '' : 's'}</span>
+            <IconDelete />
+            <span className="ctx-label">
+              Delete lane and its {inside} block{inside === 1 ? '' : 's'}
+            </span>
           </button>
         )}
         <div className="ctx-sep" />
@@ -270,7 +308,8 @@ export function ContextMenu({
           className={'ctx-item' + (r.danger ? ' danger' : '')}
           onClick={r.run}
         >
-          <span>{r.label}</span>
+          {r.icon}
+          <span className="ctx-label">{r.label}</span>
           {r.hint && <kbd>{r.hint}</kbd>}
         </button>
       ))}

@@ -454,6 +454,44 @@ one, animate `opacity` only, or move the popovers to a portal outside it.
 Same family as the `overflow: hidden` and sticky traps above: a containing
 block appearing where you didn't expect one.
 
+## Lanes reorder by dragging
+
+Pressing a lane row arms a drag and opens its menu on release if the pointer
+never moved - the same press-or-drag split the blocks use, so a lane can be
+grabbed by the obvious part of it (its title) without losing the menu.
+
+Drop targeting works in whole lanes, not rows: a lane's extent is its heading
+down to the next heading, and the midpoint of that block decides above or
+below. Targeting individual rows would let a lane land inside another one's
+items, which means nothing.
+
+"No lane" is synthetic - it has no `order` to change - so it only ever opens
+its menu.
+
+## Where the Mac app's data actually lives
+
+Not in `~/Library/Application Support/com.jpn.timeline/timeline.json`. That
+file is only a *backup*: `App.tsx` reads it at startup solely when localStorage
+came up empty (`if (!isTauri || hadStoredState) return`), and the store
+rewrites it on every change.
+
+The live store is WKWebView's localStorage:
+
+    ~/Library/WebKit/com.jpn.timeline/WebsiteData/Default/<hash>/<hash>/
+        LocalStorage/localstorage.sqlite3
+
+Editing the backup therefore does nothing - the app loads its own copy and
+overwrites the file on the next keystroke, which makes a hand-edit look like
+it applied and then silently revert. The `WebsiteData/LocalStorage` directory
+sitting next to it is empty and misleading; the real one is nested under the
+hashed origin folders. WebKit also flushes that sqlite lazily, so it can read
+several minutes stale while the app is running.
+
+To change stored data, go through the app: a version-gated migration in
+`load()`. Bumping `VERSION` alone is *not* enough - the old code returned
+`null` on a mismatch, which discards the plan and reseeds. Migrate, don't
+reject.
+
 ## Bar edges
 
 The resize grips and the dependency ports are both scoped to their own hover

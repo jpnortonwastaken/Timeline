@@ -16,14 +16,18 @@ export function Minimap() {
   const items = useStore((s) => s.items)
   const lanes = useStore((s) => s.lanes)
   const noLaneCollapsed = useStore((s) => s.noLaneCollapsed)
+  const draftChildren = useStore((s) => s.draftChildren)
   const viewFrom = useStore((s) => s.viewFrom)
   const viewTo = useStore((s) => s.viewTo)
+  const viewRowFrom = useStore((s) => s.viewRowFrom)
+  const viewRowTo = useStore((s) => s.viewRowTo)
+  const fullHeight = useStore((s) => s.minimapFullHeight)
   const ref = useRef<HTMLDivElement>(null)
   const drag = useRef<{ grabOffsetDays: number } | null>(null)
 
   const { rows } = useMemo(
-    () => flatten({ items, lanes, search: '', noLaneCollapsed }),
-    [items, lanes, noLaneCollapsed],
+    () => flatten({ items, lanes, search: '', noLaneCollapsed, draftChildren }),
+    [items, lanes, noLaneCollapsed, draftChildren],
   )
 
   const bars = useMemo(() => {
@@ -87,6 +91,32 @@ export function Minimap() {
 
   const windowDays = Math.max(1, viewTo - viewFrom)
 
+  /**
+   * Vertical extent of the window box.
+   *
+   * The canvas counts every row - headings and "+ New" lines included - while
+   * the strip only plots blocks, so a row index isn't a slot index. This walks
+   * the same flattened list to translate between the two.
+   */
+  const band = useMemo(() => {
+    if (fullHeight) return { top: 0, height: HEIGHT }
+    const slotAt: number[] = []
+    let slot = 0
+    for (const r of rows) {
+      slotAt.push(slot)
+      if (r.kind === 'item' && r.span) slot++
+    }
+    const total = Math.max(1, slot)
+    const clamp = (i: number) => Math.max(0, Math.min(rows.length - 1, Math.floor(i)))
+    const a = slotAt.length ? slotAt[clamp(viewRowFrom)] : 0
+    const b = slotAt.length ? slotAt[clamp(viewRowTo)] : total
+    // Everything on screen at once: fill the strip rather than draw a sliver.
+    if (viewRowTo - viewRowFrom >= rows.length) return { top: 0, height: HEIGHT }
+    const top = 7 + a * step
+    const height = Math.max(6, (b - a) * step)
+    return { top: Math.min(top, HEIGHT - 6), height: Math.min(height, HEIGHT - top) }
+  }, [rows, viewRowFrom, viewRowTo, step, fullHeight])
+
   const onDown = (e: React.PointerEvent) => {
     const day = dayAtClientX(e.clientX)
     const inWindow = day >= viewFrom && day <= viewTo
@@ -141,7 +171,12 @@ export function Minimap() {
       <div className="mini-today" style={{ left: `${pct(today)}%` }} />
       <div
         className="mini-window"
-        style={{ left: `${pct(viewFrom)}%`, width: `${(windowDays / totalDays) * 100}%` }}
+        style={{
+          left: `${pct(viewFrom)}%`,
+          width: `${(windowDays / totalDays) * 100}%`,
+          top: band.top,
+          height: band.height,
+        }}
       />
     </div>
   )

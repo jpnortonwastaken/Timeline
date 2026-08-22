@@ -33,10 +33,11 @@ export default function App() {
   const lanes = useStore((s) => s.lanes)
   const search = useStore((s) => s.search)
   const noLaneCollapsed = useStore((s) => s.noLaneCollapsed)
+  const draftChildren = useStore((s) => s.draftChildren)
 
   const { rows, indexById } = useMemo(
-    () => flatten({ items, lanes, search, noLaneCollapsed }),
-    [items, lanes, search, noLaneCollapsed],
+    () => flatten({ items, lanes, search, noLaneCollapsed, draftChildren }),
+    [items, lanes, search, noLaneCollapsed, draftChildren],
   )
 
   // "auto" tracks the system and must keep tracking it, not just sample once.

@@ -26,8 +26,19 @@ import type { MenuState } from './ContextMenu'
 
 const OVERSCAN_PX = 400
 const OVERSCAN_ROWS = 6
+/**
+ * Extra rows kept mounted *below* the fold.
+ *
+ * Collapsing pulls rows up from below, and a row can only glide to its new
+ * position if it was already on screen - one that mounts fresh has no previous
+ * position to animate from. With only six rows of slack, collapsing anything
+ * larger than a small subtree closed the gap with a jump, because everything
+ * that should have slid up was still unmounted. Deep plans collapse whole
+ * branches at once, so the slack below has to cover that.
+ */
+const OVERSCAN_BELOW = 60
 /** Keep in step with --reveal in styles.css. */
-const REVEAL_MS = 190
+const REVEAL_MS = 240
 /** Length of a block made by clicking rather than dragging one out. */
 const DEFAULT_DAYS = 7
 
@@ -36,9 +47,51 @@ interface Reveal {
   enter: Set<string>
   /** Rows that just left, held at their old y until the fade finishes. */
   exit: { row: TreeRow; top: number }[]
+  /** Wells that just appeared, so they grow open instead of popping. */
+  enterWells: Set<string>
+  /** Wells that just left, held on screen to shrink closed. */
+  exitWells: Well[]
 }
 
-type Mode = 'move' | 'start' | 'end' | 'create' | 'link' | 'marquee' | 'reorder' | 'new-lane'
+/** One contiguous recessed region - a run of rows nested at >= its depth. */
+interface Well {
+  key: string
+  start: number
+  end: number
+  depth: number
+}
+
+const rowDepth = (r: TreeRow) => (r.kind === 'item' || r.kind === 'new' ? r.depth : 0)
+
+/**
+ * The nesting wells, one element per run rather than painted per row. A
+ * per-row wash can only fade with its row; a single element's `top` and
+ * `height` can transition, so the well grows and shrinks in step with the
+ * rows gliding around it. Keyed by the first row of the run, so a run that
+ * merely gains or loses rows keeps its element - that persistence is what
+ * makes the height glide instead of remount.
+ */
+function computeWells(rows: TreeRow[]): Well[] {
+  const out: Well[] = []
+  const open: { start: number; key: string }[] = []
+  rows.forEach((r, i) => {
+    const d = rowDepth(r)
+    while (open.length > d) {
+      const run = open.pop()!
+      out.push({ key: run.key, start: run.start, end: i - 1, depth: open.length + 1 })
+    }
+    while (open.length < d) {
+      open.push({ start: i, key: r.key + ':' + (open.length + 1) })
+    }
+  })
+  while (open.length) {
+    const run = open.pop()!
+    out.push({ key: run.key, start: run.start, end: rows.length - 1, depth: open.length + 1 })
+  }
+  return out
+}
+
+type Mode = 'move' | 'start' | 'end' | 'create' | 'link' | 'marquee' | 'reorder' | 'new-lane' | 'lane'
 
 interface Drag {
   mode: Mode
@@ -61,6 +114,8 @@ interface Drag {
   copy: HTMLElement | null
   /** Pointer-to-copy-top offset, so the copy doesn't jump under the cursor. */
   copyDy: number
+  /** Where a lane's menu should open if the press turns out not to be a drag. */
+  menuAt: { x: number; y: number } | null
   createCtx: {
     laneId: string | null
     parentId: string | null
@@ -139,6 +194,7 @@ const blank = (e: { clientX: number; clientY: number }): Drag => ({
   ghost: null,
   copy: null,
   copyDy: 0,
+  menuAt: null,
   createCtx: null,
   linkFrom: null,
   linkDir: 'out',
@@ -294,6 +350,7 @@ export function Timeline() {
   const editingId = useStore((s) => s.editingId)
   const editingLaneId = useStore((s) => s.editingLaneId)
   const noLaneCollapsed = useStore((s) => s.noLaneCollapsed)
+  const draftChildren = useStore((s) => s.draftChildren)
 
   const setPpd = useStore((s) => s.setPpd)
   const select = useStore((s) => s.select)
@@ -306,6 +363,7 @@ export function Timeline() {
   const removeDep = useStore((s) => s.removeDep)
   const cascade = useStore((s) => s.cascade)
   const reorderItem = useStore((s) => s.reorderItem)
+  const reorderLane = useStore((s) => s.reorderLane)
   const createLane = useStore((s) => s.createLane)
   const setEditingLane = useStore((s) => s.setEditingLane)
   const setViewRange = useStore((s) => s.setViewRange)
@@ -317,12 +375,14 @@ export function Timeline() {
   // Live values for listeners that must not be re-bound on every render.
   const ppdRef = useRef(ppd)
   const sidebarRef = useRef(sidebarWidth)
+  const rowHRef = useRef(DENSITY_HEIGHT[density])
   ppdRef.current = ppd
   sidebarRef.current = sidebarWidth
+  rowHRef.current = DENSITY_HEIGHT[density]
 
   const { rows } = useMemo(
-    () => flatten({ items, lanes, search, noLaneCollapsed }),
-    [items, lanes, search, noLaneCollapsed],
+    () => flatten({ items, lanes, search, noLaneCollapsed, draftChildren }),
+    [items, lanes, search, noLaneCollapsed, draftChildren],
   )
 
   const rowH = DENSITY_HEIGHT[density]
@@ -352,16 +412,21 @@ export function Timeline() {
   }, [rows])
 
   /* ---- expand/collapse reveal ----------------------------------------
-     Driven off the collapse state alone, so the many other things that
+     Driven off the disclosure state alone, so the many other things that
      reshape the list - editing, searching, reordering, undo - stay instant
-     and keep their direct-style-mutation fast paths. */
+     and keep their direct-style-mutation fast paths.
+
+     Draft lines count as disclosure: opening one on a childless block adds a
+     row exactly the way expanding a real parent does, and it should arrive
+     the same way rather than popping in. */
   const collapseSig = useMemo(() => {
     const parts: string[] = []
     for (const id in items) if (items[id].collapsed) parts.push(id)
     for (const id in lanes) if (lanes[id].collapsed) parts.push('g:' + id)
+    for (const id in draftChildren) parts.push('d:' + id)
     if (noLaneCollapsed) parts.push('g:none')
     return parts.sort().join(',')
-  }, [items, lanes, noLaneCollapsed])
+  }, [items, lanes, noLaneCollapsed, draftChildren])
 
   // The menu data outlives `menu` by one exit animation, so the popover has
   // something to render while it fades.
@@ -371,6 +436,7 @@ export function Timeline() {
     if (menu) setLastMenu(menu)
   }, [menu])
 
+  const wells = useMemo(() => computeWells(rows), [rows])
   const [reveal, setReveal] = useState<Reveal | null>(null)
   const prevRowsRef = useRef(rows)
   const collapseSigRef = useRef(collapseSig)
@@ -388,9 +454,19 @@ export function Timeline() {
     const exit = prev
       .map((row, i) => ({ row, top: i * rowH }))
       .filter((x) => !after.has(x.row.key))
-    if (!enter.size && !exit.length) return
 
-    setReveal({ enter, exit })
+    const prevWells = computeWells(prev)
+    const curKeys = new Set(computeWells(rows).map((w) => w.key))
+    const prevKeys = new Set(prevWells.map((w) => w.key))
+    const enterWells = new Set(
+      computeWells(rows)
+        .filter((w) => !prevKeys.has(w.key))
+        .map((w) => w.key),
+    )
+    const exitWells = prevWells.filter((w) => !curKeys.has(w.key))
+    if (!enter.size && !exit.length && !enterWells.size && !exitWells.length) return
+
+    setReveal({ enter, exit, enterWells, exitWells })
     // A ref rather than effect cleanup: `rows` can change again mid-flight,
     // and a cleanup would cancel the reset and strand ghosts on screen.
     window.clearTimeout(revealTimer.current)
@@ -416,9 +492,12 @@ export function Timeline() {
       const el = scrollerRef.current
       if (!el) return
       const sw = sidebarRef.current
+      const rh = rowHRef.current
       setViewRange(
         xToDay(el.scrollLeft, ppdRef.current),
         xToDay(el.scrollLeft + el.clientWidth - sw, ppdRef.current),
+        Math.floor(el.scrollTop / rh),
+        Math.ceil((el.scrollTop + el.clientHeight - HEADER_HEIGHT) / rh),
       )
       setView((v) =>
         v.scrollTop === el.scrollTop &&
@@ -622,7 +701,7 @@ export function Timeline() {
   }, [view.scrollLeft, view.w, ppd, sidebarWidth, tier.major, tier.minor])
 
   const firstRow = Math.max(0, Math.floor(view.scrollTop / rowH) - OVERSCAN_ROWS)
-  const lastRow = Math.min(rows.length, Math.ceil((view.scrollTop + view.h) / rowH) + OVERSCAN_ROWS)
+  const lastRow = Math.min(rows.length, Math.ceil((view.scrollTop + view.h) / rowH) + OVERSCAN_BELOW)
   const visibleRows = rows.slice(firstRow, lastRow)
   const selectionSet = useMemo(() => new Set(selection), [selection])
 
@@ -806,17 +885,30 @@ export function Timeline() {
     return snapDay(Math.round(xToDay(x, ppdRef.current)), 'day')
   }
 
-  /** Is this client x out on the canvas, rather than over the table column? */
+  /**
+   * Is this client x out on the canvas, rather than over the table column?
+   *
+   * Measured from the scroller, not the layer. The layer spans the whole
+   * content and slides left as you scroll, so `clientX - layer.left` is a
+   * content coordinate - scrolled right, a press on the pinned table column
+   * looks like a press far out on the canvas. The column is `position: sticky`
+   * against the scroller, so that is what it has to be compared with.
+   */
   const overCanvas = (clientX: number) => {
-    const rect = layerRef.current?.getBoundingClientRect()
+    const rect = scrollerRef.current?.getBoundingClientRect()
     return !!rect && clientX - rect.left - sidebarRef.current > 0
   }
 
   const newItemIn = (laneId: string | null, status?: string, parentId?: string | null) => {
     // A sub-item starts where its parent does, so it lands beside its siblings
-    // instead of yanking the canvas off to today.
-    const parentStart = parentId ? items[parentId]?.start?.date : undefined
-    const t = parentStart ? isoToDay(parentStart) : todayDay()
+    // rather than off at today on its own. Top-level ones start at today.
+    // Read from geo, not item.start: a parent whose dates are rolled up from
+    // its children has no stored start, and geo holds the computed span.
+    const parentStart = parentId
+      ? (geo.get(parentId)?.span.startDay ??
+         (items[parentId]?.start ? isoToDay(items[parentId]!.start!.date) : undefined))
+      : undefined
+    const t = parentStart ?? todayDay()
     const id = createItem({
       laneId,
       ...(parentId ? { parentId } : {}),
@@ -955,14 +1047,22 @@ export function Timeline() {
       capture()
       return
     }
-    // Lane title -> its menu, anchored under the title like Notion does.
+    // A lane row: the whole cell drags to reorder, and releasing on the title
+    // without moving opens its menu - the same press-or-drag split the blocks
+    // use, so a lane can be grabbed by the obvious part of it.
     const laneBtn = target.closest('[data-lane-menu]') as HTMLElement | null
-    if (laneBtn) {
+    if (kind === 'group' && (laneBtn || target.closest('.side')) && !target.closest('[data-group-add]')) {
       e.preventDefault()
-      const gid = rowEl.dataset.groupId
-      if (gid) {
-        const b = laneBtn.getBoundingClientRect()
-        setMenu({ x: b.left, y: b.bottom + 4, target: { kind: 'group', id: gid } })
+      const gid = rowEl.dataset.groupId ?? ''
+      const b = laneBtn?.getBoundingClientRect()
+      const menuAt = b ? { x: b.left, y: b.bottom + 4 } : null
+      // "No lane" is synthetic - it has no order to change, so it only ever
+      // opens its menu.
+      if (gid && gid !== '__none' && lanes[gid]) {
+        dragRef.current = { ...base, mode: 'lane', ids: [gid], menuAt }
+        capture()
+      } else if (menuAt && gid) {
+        setMenu({ x: menuAt.x, y: menuAt.y, target: { kind: 'group', id: gid } })
       }
       return
     }
@@ -995,11 +1095,17 @@ export function Timeline() {
       return
     }
 
-    // 3. Sidebar clicks are selection only.
+    // 3. The table column selects - and arms a reorder, so the whole row is a
+    //    drag handle, not just the grip. Nothing happens unless the pointer
+    //    actually moves, so a plain press is still just a click. The cursor is
+    //    deliberately left alone: a grab cursor on every row would advertise
+    //    dragging over the whole table.
     if (target.closest('.side')) {
       if (itemId) {
         if (e.shiftKey || e.metaKey) toggleSelect(itemId)
         else select([itemId])
+        dragRef.current = { ...base, mode: 'reorder', ids: [itemId] }
+        capture()
       } else {
         select([])
       }
@@ -1301,6 +1407,56 @@ export function Timeline() {
 
     if (d.copy) d.copy.style.top = `${toLayer(e.clientX, e.clientY).y - d.copyDy}px`
 
+    if (d.mode === 'lane') {
+      layerRef.current?.querySelectorAll('.drop-line, .drop-into').forEach((n) => n.remove())
+      d.dropTarget = null
+      const layerRect = layerRef.current?.getBoundingClientRect()
+      if (!layerRect) return
+      const raw = (e.clientY - layerRect.top) / rowH
+      const idx = Math.max(0, Math.min(rows.length - 1, Math.floor(raw)))
+
+      // A lane's extent is its heading down to the next heading, so the drop
+      // lands between whole lanes rather than between two of their rows.
+      let start = -1
+      let laneId: string | null = null
+      for (let i = idx; i >= 0; i--) {
+        const r = rows[i]
+        if (r.kind === 'group') {
+          start = i
+          laneId = r.id
+          break
+        }
+      }
+      if (laneId === null || laneId === '__none' || laneId === d.ids[0]) {
+        showTip(e.clientX, e.clientY, 'Drag over another lane')
+        return
+      }
+      // Stop at the next heading - or at the trailing "+ New lane" row, which
+      // belongs to no lane. Without that, the last lane's block ran to the end
+      // of the list and the drop line drew *below* "+ New lane", when the lane
+      // actually lands above it.
+      let end = rows.length
+      for (let i = start + 1; i < rows.length; i++) {
+        const r = rows[i]
+        if (r.kind === 'group' || r.kind === 'new-lane') {
+          end = i
+          break
+        }
+      }
+      const position = raw < (start + end) / 2 ? 'before' : 'after'
+      d.dropTarget = { id: laneId, position }
+      const line = document.createElement('div')
+      line.className = 'drop-line'
+      line.style.top = `${(position === 'before' ? start : end) * rowH - 1}px`
+      layerRef.current?.appendChild(line)
+      showTip(
+        e.clientX,
+        e.clientY,
+        `${position === 'before' ? 'Above' : 'Below'} “${lanes[laneId]?.name || 'Untitled lane'}”`,
+      )
+      return
+    }
+
     if (d.mode === 'reorder') {
       const hovered = hitRowAt(e.clientX, e.clientY)
       const id = hovered?.dataset.itemId
@@ -1408,6 +1564,15 @@ export function Timeline() {
     // Drop the easing first: the lines below restore the pre-drag inline
     // values, and those must snap back, not glide.
     for (const el of dragSmoothEls(d)) el.classList.remove('drag-smooth')
+
+    if (d.mode === 'lane') {
+      if (!d.moved) {
+        if (d.menuAt) setMenu({ x: d.menuAt.x, y: d.menuAt.y, target: { kind: 'group', id: d.ids[0] } })
+      } else if (d.dropTarget && d.dropTarget.position !== 'child') {
+        reorderLane(d.ids[0], d.dropTarget.id, d.dropTarget.position)
+      }
+      return
+    }
 
     if (d.mode === 'new-lane') {
       // Only a press that stayed put counts, the way a button does.
@@ -1729,6 +1894,26 @@ export function Timeline() {
             ))}
             </div>
 
+            {/* Wells before rows, so row hover/selection paints above them. */}
+            {wells.map((w) => (
+              <div
+                key={w.key}
+                className={
+                  'nest-well' +
+                  (w.depth > 1 ? ' inner' : '') +
+                  (reveal?.enterWells.has(w.key) ? ' in' : '')
+                }
+                style={{ top: w.start * rowH, height: (w.end + 1 - w.start) * rowH }}
+              />
+            ))}
+            {reveal?.exitWells.map((w) => (
+              <div
+                key={'x:' + w.key}
+                className={'nest-well out' + (w.depth > 1 ? ' inner' : '')}
+                style={{ top: w.start * rowH, height: (w.end + 1 - w.start) * rowH }}
+              />
+            ))}
+
             <div className="edge-guide" ref={guideRef} />
             <div className="edge-label" ref={edgeLabelRef} />
             {visibleRows.map((row, i) => (
@@ -1752,32 +1937,53 @@ export function Timeline() {
               />
             ))}
 
-            {/* ...and the rows that just left stay one beat longer to fade out.
+            {/* ...and the rows that just left stay one beat longer, grouped
+                into contiguous runs, each run clipped away bottom-up as the
+                gap closes - the incoming rows glide up at exactly the rate
+                the clip edge rises, so the collapse reads as the content
+                being swallowed rather than lingering and fading in place.
+                clip-path, deliberately: overflow or transform on this wrapper
+                would break the sticky table cells inside the ghosts.
                 Culled to the viewport so collapsing a huge subtree doesn't
                 mount hundreds of throwaway rows. */}
-            {reveal?.exit
-              .filter(
+            {(() => {
+              if (!reveal?.exit.length) return null
+              const visible = reveal.exit.filter(
                 (x) =>
                   x.top + rowH > view.scrollTop - rowH * OVERSCAN_ROWS &&
-                  x.top < view.scrollTop + view.h + rowH * OVERSCAN_ROWS,
+                  x.top < view.scrollTop + view.h + rowH * OVERSCAN_BELOW,
               )
-              .map((x) => (
-                <TimelineRow
-                  key={'exit:' + x.row.key}
-                  row={x.row}
-                  index={-1}
-                  top={x.top}
-                  height={rowH}
-                  ppd={ppd}
-                  sidebarWidth={sidebarWidth}
-                  selected={false}
-                  editing={false}
-                  columns={columns}
-                  linking={false}
-                  anim="exit"
-                  ghost
-                />
-              ))}
+              const groups: { top: number; rows: typeof visible }[] = []
+              for (const x of visible) {
+                const g = groups[groups.length - 1]
+                if (g && x.top === g.top + g.rows.length * rowH) g.rows.push(x)
+                else groups.push({ top: x.top, rows: [x] })
+              }
+              return groups.map((g) => (
+                <div
+                  key={'exit:' + g.rows[0].row.key}
+                  className="exit-clip"
+                  style={{ top: g.top, height: g.rows.length * rowH }}
+                >
+                  {g.rows.map((x) => (
+                    <TimelineRow
+                      key={'exit:' + x.row.key}
+                      row={x.row}
+                      index={-1}
+                      top={x.top - g.top}
+                      height={rowH}
+                      ppd={ppd}
+                      sidebarWidth={sidebarWidth}
+                      selected={false}
+                      editing={false}
+                      columns={columns}
+                      linking={false}
+                      ghost
+                    />
+                  ))}
+                </div>
+              ))
+            })()}
 
             <svg className="deps" ref={depsSvgRef} width={contentWidth} height={rowsHeight}>
               {depPaths.map((p) => (

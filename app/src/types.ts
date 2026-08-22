@@ -69,6 +69,7 @@ export interface PersistedState extends Snapshot {
   visibleColumns: string[]
   autoShift: boolean
   showMinimap: boolean
+  minimapFullHeight: boolean
   noLaneCollapsed: boolean
   sidebarOpen: boolean
 }

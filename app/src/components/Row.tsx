@@ -132,6 +132,7 @@ function RowImpl({
 }: Props) {
   const toggleCollapse = useStore((s) => s.toggleCollapse)
   const toggleLaneCollapse = useStore((s) => s.toggleLaneCollapse)
+  const toggleDraftChild = useStore((s) => s.toggleDraftChild)
   const animClass = anim ? ' anim-' + anim : ''
 
   if (row.kind === 'new') {
@@ -140,6 +141,7 @@ function RowImpl({
         className={
           'row new-row' +
           (row.depth ? ' nested' : '') +
+          (row.nestTop ? ' nest-top' : '') +
           (row.nestBottom ? ' nest-bottom' : '') +
           animClass
         }
@@ -289,7 +291,18 @@ function RowImpl({
             <Chevron open={!row.collapsed} />
           </button>
         ) : (
-          <span className="disclosure-spacer" />
+          /* Nothing to expand yet, so this opens an empty line to add the
+             first sub-item. Hidden until the row is hovered - or until it is
+             open, or you could not find your way back to close it. */
+          <button
+            className={'disclosure draft-twisty' + (row.draftChild ? ' on' : '')}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => toggleDraftChild(item.id)}
+            aria-expanded={row.draftChild}
+            aria-label={row.draftChild ? 'Hide the new sub-item line' : 'Add a sub-item'}
+          >
+            <Chevron open={row.draftChild} />
+          </button>
         )}
         <span className={'dot c-' + row.colorId} />
         {editing ? (
@@ -366,7 +379,7 @@ function RowImpl({
             className={'bar-inner' + (labelOutside ? ' outside' : '')}
             style={labelOutside ? undefined : { left: sidebarWidth + 6 }}
           >
-            {row.hasChildren && (
+            {row.hasChildren ? (
               <button
                 className="disclosure bar-chev"
                 onPointerDown={(e) => e.stopPropagation()}
@@ -374,6 +387,18 @@ function RowImpl({
                 aria-label={row.collapsed ? 'Expand' : 'Collapse'}
               >
                 <Chevron open={!row.collapsed} />
+              </button>
+            ) : (
+              /* The same draft twisty the table column has, so a block can be
+                 given its first sub-item from either side. */
+              <button
+                className={'disclosure bar-chev draft-twisty' + (row.draftChild ? ' on' : '')}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => toggleDraftChild(item.id)}
+                aria-expanded={row.draftChild}
+                aria-label={row.draftChild ? 'Hide the new sub-item line' : 'Add a sub-item'}
+              >
+                <Chevron open={row.draftChild} />
               </button>
             )}
             <span className="bar-label">{item.title || 'Untitled'}</span>
@@ -412,6 +437,7 @@ export const TimelineRow = memo(RowImpl, (a, b) => {
       y.kind === 'new' &&
       x.key === y.key &&
       x.depth === y.depth &&
+      x.nestTop === y.nestTop &&
       x.nestBottom === y.nestBottom &&
       x.previewStart === y.previewStart
     )
@@ -436,6 +462,7 @@ export const TimelineRow = memo(RowImpl, (a, b) => {
     xi.nestTop === yi.nestTop &&
     xi.nestBottom === yi.nestBottom &&
     xi.isLast === yi.isLast &&
+    xi.draftChild === yi.draftChild &&
     xi.trail.length === yi.trail.length &&
     xi.trail.every((v, i) => v === yi.trail[i]) &&
     xi.span?.startDay === yi.span?.startDay &&

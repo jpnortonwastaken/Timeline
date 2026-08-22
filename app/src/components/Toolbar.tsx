@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import { POP_OUT_MS, presenceClass, usePresence } from '../lib/presence'
 import { ALL_COLUMNS, useStore } from '../store'
+import { IconExport, IconImport } from './icons'
 import { MAX_PPD, MIN_PPD, todayDay, ZOOM_PRESETS } from '../lib/time'
 import { cmd } from '../lib/viewport'
 import type { Density, ThemeMode } from '../types'
@@ -137,13 +138,14 @@ function ViewMenu() {
   const columns = useStore((s) => s.visibleColumns)
   const autoShift = useStore((s) => s.autoShift)
   const showMinimap = useStore((s) => s.showMinimap)
+  const minimapFullHeight = useStore((s) => s.minimapFullHeight)
   const sidebarOpen = useStore((s) => s.sidebarOpen)
   const toggleSidebar = useStore((s) => s.toggleSidebar)
   const setDensity = useStore((s) => s.setDensity)
   const toggleColumn = useStore((s) => s.toggleColumn)
   const toggleAutoShift = useStore((s) => s.toggleAutoShift)
   const toggleMinimap = useStore((s) => s.toggleMinimap)
-  const resetToSeed = useStore((s) => s.resetToSeed)
+  const toggleMinimapFullHeight = useStore((s) => s.toggleMinimapFullHeight)
   const themeMode = useStore((s) => s.themeMode)
   const setThemeMode = useStore((s) => s.setThemeMode)
 
@@ -236,23 +238,24 @@ function ViewMenu() {
             onClick={toggleAutoShift}
           />
           <CheckItem label="Overview strip" on={showMinimap} onClick={toggleMinimap} />
+          {showMinimap && (
+            <CheckItem
+              label="Full-height overview box"
+              title="Show the window box as a full-height column, rather than the rows actually on screen"
+              on={minimapFullHeight}
+              onClick={toggleMinimapFullHeight}
+            />
+          )}
 
           <div className="menu-sep" />
           <p className="menu-head">Data</p>
-          <button className="menu-item plain" onClick={close(downloadJSON)}>
+          <button className="menu-item" onClick={close(downloadJSON)}>
+            <IconExport />
             <span className="menu-label">Export JSON…</span>
           </button>
-          <button className="menu-item plain" onClick={close(pickAndImport)}>
+          <button className="menu-item" onClick={close(pickAndImport)}>
+            <IconImport />
             <span className="menu-label">Import JSON…</span>
-          </button>
-          <button
-            className="menu-item plain"
-            onClick={close(() => {
-              if (confirm('Replace everything with the sample plan? This can be undone with ⌘Z.'))
-                resetToSeed()
-            })}
-          >
-            <span className="menu-label">Reset to sample data</span>
           </button>
         </div>
       )}

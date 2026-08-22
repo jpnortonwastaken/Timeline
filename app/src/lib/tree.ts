@@ -36,6 +36,8 @@ export interface ItemRow {
   trail: boolean[]
   /** Last child of its parent, so the elbow is a corner rather than a tee. */
   isLast: boolean
+  /** Childless, but showing an empty "+ New sub-item" line below it. */
+  draftChild: boolean
 }
 
 export interface GroupRow {
@@ -61,6 +63,10 @@ export interface NewRow {
   parentId: ItemId | null
   /** Indent level, matching the children it sits below. */
   depth: number
+  /** Opens the nested run when this is the first row of one - which happens
+      when a childless block opens a draft line, so nothing sits above it at
+      the same depth. */
+  nestTop: boolean
   /** Closes the nested run when this is the last row of one. */
   nestBottom: boolean
   /** Day the block it would create starts on, for the hover preview. */
@@ -131,6 +137,8 @@ export interface FlattenArgs {
   search: string
   /** Collapse state of the synthetic "No lane" group. */
   noLaneCollapsed: boolean
+  /** Childless blocks showing an empty "+ New sub-item" line. */
+  draftChildren?: Record<ItemId, true>
 }
 
 export interface FlattenResult {
@@ -139,7 +147,13 @@ export interface FlattenResult {
   indexById: Map<ItemId, number>
 }
 
-export function flatten({ items, lanes, search, noLaneCollapsed }: FlattenArgs): FlattenResult {
+export function flatten({
+  items,
+  lanes,
+  search,
+  noLaneCollapsed,
+  draftChildren,
+}: FlattenArgs): FlattenResult {
   const byParent = childIndex(items)
   const spanCache = new Map<ItemId, Span | null>()
   const q = search.trim().toLowerCase()
@@ -174,6 +188,7 @@ export function flatten({ items, lanes, search, noLaneCollapsed }: FlattenArgs):
     const kids = (byParent.get(item.id) ?? []).filter((c) => !keep || keep.has(c.id))
     const collapsed = item.collapsed && !q
     const colorId = item.colorId ?? inheritedColor
+    const span = computeSpan(item, byParent, spanCache)
     rows.push({
       kind: 'item',
       key: item.id,
@@ -182,12 +197,13 @@ export function flatten({ items, lanes, search, noLaneCollapsed }: FlattenArgs):
       depth,
       hasChildren: kids.length > 0,
       collapsed,
-      span: computeSpan(item, byParent, spanCache),
+      span,
       colorId,
       nestTop: false,
       nestBottom: false,
       trail,
       isLast,
+      draftChild: !kids.length && !!draftChildren?.[item.id],
     })
     // A child's pass-through cells are this item's own, plus one new column for
     // this item's sibling line. Top-level items are the exception: their
@@ -195,17 +211,19 @@ export function flatten({ items, lanes, search, noLaneCollapsed }: FlattenArgs):
     if (!collapsed) {
       const childTrail = depth === 0 ? [] : [...trail, !isLast]
       kids.forEach((c, i) => emit(c, depth + 1, colorId, childTrail, i === kids.length - 1))
-      // Only where there are already children: an "add a sub-item" line under
-      // every leaf would double the length of the list.
-      if (kids.length && !q) {
+      // Where there are children already - or where the twisty has been used
+      // to open a draft line. An "add a sub-item" line under every leaf would
+      // double the length of the list.
+      if ((kids.length || draftChildren?.[item.id]) && !q) {
         rows.push({
           kind: 'new',
           key: 'new:' + item.id,
           laneId: item.laneId,
           parentId: item.id,
           depth: depth + 1,
+          nestTop: false,
           nestBottom: false,
-          previewStart: item.start ? isoToDay(item.start.date) : todayDay(),
+          previewStart: span ? span.startDay : todayDay(),
         })
       }
     }
@@ -255,6 +273,7 @@ export function flatten({ items, lanes, search, noLaneCollapsed }: FlattenArgs):
           laneId: g.id === '__none' ? null : g.id,
           parentId: null,
           depth: 0,
+          nestTop: false,
           nestBottom: false,
           previewStart: todayDay(),
         })
@@ -278,6 +297,7 @@ export function flatten({ items, lanes, search, noLaneCollapsed }: FlattenArgs):
       r.nestTop = !(above >= r.depth)
       r.nestBottom = !(below >= r.depth)
     } else if (r.kind === 'new') {
+      r.nestTop = !(above >= r.depth)
       r.nestBottom = !(below >= r.depth)
     }
   }
