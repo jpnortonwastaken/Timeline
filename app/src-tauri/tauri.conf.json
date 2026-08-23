@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Timeline",
+  "productName": "Timelime",
   "version": "0.1.0",
   "identifier": "com.jpn.timeline",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Timeline",
+        "title": "Timelime",
         "width": 1320,
         "height": 860,
         "minWidth": 720,
@@ -41,7 +41,7 @@
       "dmg"
     ],
     "category": "Productivity",
-    "shortDescription": "Timeline",
+    "shortDescription": "Timelime",
     "longDescription": "A timeline for planning projects and a whole life on one canvas.",
     "copyright": "",
     "icon": [

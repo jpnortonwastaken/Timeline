@@ -404,8 +404,11 @@ export function Toolbar() {
           shrink rather than overlap when the window gets narrow. */}
       <div className="tb-side">
         <div className="brand">
-          <span className="brand-mark" aria-hidden />
-          <span className="brand-name">Timeline</span>
+          {/* Both marks ship; CSS picks one by the resolved theme, so "auto"
+              follows the system without any JS plumbing. */}
+          <img className="brand-mark light" src="/brand/mark-light.png" alt="" aria-hidden />
+          <img className="brand-mark dark" src="/brand/mark-dark.png" alt="" aria-hidden />
+          <span className="brand-name">Timelime</span>
         </div>
 
         {/* Sits beside the table it toggles, rather than across the bar from it. */}

@@ -10,6 +10,8 @@ export const cmd = {
   goToDay: (_day: number, _align?: number, _smooth?: boolean) => {},
   /** Scroll a row index into view vertically. */
   revealRow: (_index: number) => {},
+  /** Put a (fractional) row index at the top of the canvas, without easing. */
+  scrollToRow: (_row: number) => {},
   /** Current visible day range, for the minimap window. */
   visibleDays: () => ({ from: 0, to: 0 }),
 }

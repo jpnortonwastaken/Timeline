@@ -116,6 +116,14 @@ interface Drag {
   copyDy: number
   /** Where a lane's menu should open if the press turns out not to be a drag. */
   menuAt: { x: number; y: number } | null
+  /** Canvas scroll at press time. Dates follow the pointer's position over the
+      *content*, so any scrolling during the gesture counts as movement too. */
+  startScrollLeft: number
+  /** Last pointer position, so an auto-scroll frame can re-run the drag
+      without a pointer event to trigger it. */
+  lastClientX: number
+  lastClientY: number
+  lastAlt: boolean
   createCtx: {
     laneId: string | null
     parentId: string | null
@@ -195,6 +203,10 @@ const blank = (e: { clientX: number; clientY: number }): Drag => ({
   copy: null,
   copyDy: 0,
   menuAt: null,
+  startScrollLeft: 0,
+  lastClientX: e.clientX,
+  lastClientY: e.clientY,
+  lastAlt: false,
   createCtx: null,
   linkFrom: null,
   linkDir: 'out',
@@ -314,6 +326,11 @@ function buildDepPaths(g: DepGeom): { id: string; d: string; head: string }[] {
 
 export function Timeline() {
   const scrollerRef = useRef<HTMLDivElement>(null)
+  /** Latest applyHorizontal, for the scroll handler to reach. */
+  const isDateDragRef = useRef<((d: NonNullable<typeof dragRef.current>) => boolean) | null>(null)
+  const applyHorizontalRef = useRef<
+    ((d: NonNullable<typeof dragRef.current>, x: number, y: number, alt: boolean) => void) | null
+  >(null)
   const layerRef = useRef<HTMLDivElement>(null)
   const tipRef = useRef<HTMLDivElement>(null)
   const depsSvgRef = useRef<SVGSVGElement>(null)
@@ -474,6 +491,7 @@ export function Timeline() {
   }, [collapseSig, rows, rowH])
 
   useEffect(() => () => window.clearTimeout(revealTimer.current), [])
+  useEffect(() => () => cancelAnimationFrame(edgeScrollRef.current), [])
 
   // -- scroll tracking -------------------------------------------------------
   const syncView = useCallback(() => {
@@ -492,6 +510,13 @@ export function Timeline() {
       const el = scrollerRef.current
       if (!el) return
       const sw = sidebarRef.current
+      // A drag's dates follow the pointer over the *content*, so a scroll is
+      // movement even when the pointer is still.
+      const drag = dragRef.current
+      if (drag?.moved && applyHorizontalRef.current && isDateDragRef.current?.(drag)) {
+        applyHorizontalRef.current(drag, drag.lastClientX, drag.lastClientY, drag.lastAlt)
+      }
+
       const rh = rowHRef.current
       setViewRange(
         xToDay(el.scrollLeft, ppdRef.current),
@@ -621,6 +646,12 @@ export function Timeline() {
       if (y < el.scrollTop) el.scrollTo({ top: y - 8, behavior: 'smooth' })
       else if (y + rowH > visibleBottom)
         el.scrollTo({ top: y + rowH - (el.clientHeight - HEADER_HEIGHT) + 8, behavior: 'smooth' })
+    }
+    cmd.scrollToRow = (row) => {
+      const el = scrollerRef.current
+      if (!el) return
+      // Direct, not eased: this follows a pointer, so it has to be exact.
+      el.scrollTop = Math.max(0, row * rowH)
     }
     cmd.visibleDays = () => {
       const el = scrollerRef.current
@@ -817,7 +848,7 @@ export function Timeline() {
     const outline = rowEl.querySelector<HTMLElement>('.new-outline')
     const row = rows[Number(rowEl.dataset.rowIndex)]
     if (!outline || row?.kind !== 'new') return
-    outline.style.left = `${sidebarRef.current + dayToX(row.previewStart, ppdRef.current)}px`
+    outline.style.transform = `translateX(${dayToX(row.previewStart, ppdRef.current)}px)`
   }
 
   const showGuide = (contentX: number, rowIndex: number, text: string, isStart: boolean) => {
@@ -962,7 +993,11 @@ export function Timeline() {
     const sw = sidebarRef.current
     const perDay = ppdRef.current
     const snapUnit = tierFor(perDay).snap
-    const base: Drag = { ...blank(e), snapUnit }
+    const base: Drag = {
+      ...blank(e),
+      snapUnit,
+      startScrollLeft: scrollerRef.current?.scrollLeft ?? 0,
+    }
     const capture = () => {
       try {
         ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
@@ -1229,39 +1264,225 @@ export function Timeline() {
     d: NonNullable<typeof dragRef.current>,
     clientX: number,
     clientY: number,
-    id: string,
-    rowTop: number,
+    rowIndex: number,
     rel: number,
   ) => {
-    // Dropping a branch inside itself is impossible; say so rather than
-    // offering a target the store will silently refuse.
-    if (id === d.ids[0] || descendants(items, d.ids[0]).includes(id)) {
-      showTip(clientX, clientY, 'Can’t nest inside itself')
+    const forbidden = (target: string) =>
+      target === d.ids[0] || descendants(items, d.ids[0]).includes(target)
+    const hovered = rows[rowIndex]
+
+    /*
+     * The middle band nests inside the hovered row. A "+ New sub-item" line
+     * counts: it is literally the slot where a child of that parent would go,
+     * so aiming at it should drop the block into that slot rather than resolve
+     * to the gap above it. A lane's own "+ New" has no parent to nest into, so
+     * it still falls through and is treated purely as a gap - which is what
+     * keeps the strip below a branch usable rather than dead.
+     */
+    const childTarget =
+      hovered?.kind === 'item'
+        ? hovered.id
+        : hovered?.kind === 'new'
+          ? hovered.parentId
+          : null
+
+    if (rel >= 0.3 && rel <= 0.7 && childTarget) {
+      if (forbidden(childTarget)) {
+        showTip(clientX, clientY, 'Can’t nest inside itself')
+        return
+      }
+      d.dropTarget = { id: childTarget, position: 'child' }
+      const marker = document.createElement('div')
+      marker.className = 'drop-into'
+      marker.style.top = `${rowIndex * rowH}px`
+      marker.style.height = `${rowH}px`
+      layerRef.current?.appendChild(marker)
+      showTip(clientX, clientY, `Nest under “${items[childTarget]?.title || 'Untitled'}”`)
       return
     }
-    const position = rel < 0.3 ? 'before' : rel > 0.7 ? 'after' : 'child'
-    d.dropTarget = { id, position }
 
-    const marker = document.createElement('div')
-    if (position === 'child') {
-      marker.className = 'drop-into'
-      marker.style.top = `${rowTop}px`
-      marker.style.height = `${rowH}px`
+    /*
+     * Otherwise the target is a *gap* between rows, not a row - the line is
+     * drawn at the gap under the pointer, and what the drop means is read off
+     * the rows either side of it.
+     *
+     * This is what makes deep branches behave. The row below a gap decides:
+     * at the bottom of a parent's heading the next row is its first child, so
+     * the block lands inside; at the bottom of a branch's last leaf the next
+     * row is shallower, so the block lands after the whole branch. Both times
+     * the line sits exactly where the pointer is. Keying off the hovered row
+     * instead meant the pointer and the line pointed at different gaps.
+     */
+    const gap = rel < 0.3 ? rowIndex : rowIndex + 1
+    const below = rows[gap]
+    const above = rows[gap - 1]
+
+    let target: { id: string; position: 'before' | 'after' } | null = null
+    if (below?.kind === 'item' && !forbidden(below.id)) {
+      target = { id: below.id, position: 'before' }
+    } else if (above?.kind === 'item' && !forbidden(above.id)) {
+      // Nothing usable below - the end of a lane, or a "+ New" line.
+      target = { id: above.id, position: 'after' }
     } else {
-      marker.className = 'drop-line'
-      marker.style.top = `${rowTop + (position === 'after' ? rowH : 0) - 1}px`
+      // Both neighbours are affordance rows, which happens at the foot of a
+      // lane where a "+ New sub-item" line sits above the lane's own "+ New".
+      // Walk back to the nearest real row so the gap still means something
+      // rather than being a dead strip.
+      for (let i = gap - 1; i >= 0; i--) {
+        const r = rows[i]
+        if (r.kind === 'item' && !forbidden(r.id)) {
+          target = { id: r.id, position: 'after' }
+          break
+        }
+        if (r.kind === 'group') break
+      }
     }
+    if (!target) {
+      showTip(clientX, clientY, 'Can’t drop here')
+      return
+    }
+
+    d.dropTarget = target
+    const marker = document.createElement('div')
+    marker.className = 'drop-line'
+    marker.style.top = `${gap * rowH - 1}px`
     layerRef.current?.appendChild(marker)
 
-    const name = items[id]?.title || 'Untitled'
+    const name = items[target.id]?.title || 'Untitled'
     showTip(
       clientX,
       clientY,
-      position === 'child'
-        ? `Nest under “${name}”`
-        : `${position === 'before' ? 'Above' : 'Below'} “${name}”`,
+      target.position === 'before' ? `Above “${name}”` : `Below “${name}”`,
     )
   }
+
+  /**
+   * Auto-scroll while a date drag is held near the left or right edge, so a
+   * block can be taken far beyond the current view. The frame both scrolls and
+   * re-applies the drag, which is what keeps the block under the cursor: the
+   * pointer isn't moving, so nothing else would update it.
+   *
+   * Speed ramps with how far into the edge zone the pointer is, and is capped
+   * per frame rather than per second - a slow frame then scrolls less, instead
+   * of overshooting past where the drag maths can follow.
+   */
+  const edgeScrollRef = useRef(0)
+  const EDGE_ZONE = 56
+  const EDGE_MAX_PX = 26
+
+  const edgeScroll = (d: NonNullable<typeof dragRef.current>) => {
+    if (!isDateDrag(d) || edgeScrollRef.current) return
+
+    const step = () => {
+      edgeScrollRef.current = 0
+      const cur = dragRef.current
+      const el = scrollerRef.current
+      if (!cur || !el || !cur.moved) return
+
+      const rect = el.getBoundingClientRect()
+      const left = rect.left + sidebarRef.current
+      const right = rect.right
+      let push = 0
+      if (cur.lastClientX > right - EDGE_ZONE) {
+        push = Math.min(1, (cur.lastClientX - (right - EDGE_ZONE)) / EDGE_ZONE)
+      } else if (cur.lastClientX < left + EDGE_ZONE) {
+        push = -Math.min(1, (left + EDGE_ZONE - cur.lastClientX) / EDGE_ZONE)
+      }
+
+      if (push !== 0) {
+        const before = el.scrollLeft
+        el.scrollLeft = before + push * EDGE_MAX_PX
+        // Only worth re-running if the canvas actually moved - at either end
+        // of the timeline it can't, and the block should simply hold still.
+        if (el.scrollLeft !== before) {
+          applyHorizontal(cur, cur.lastClientX, cur.lastClientY, cur.lastAlt)
+        }
+      }
+      edgeScrollRef.current = requestAnimationFrame(step)
+    }
+    edgeScrollRef.current = requestAnimationFrame(step)
+  }
+
+  const stopEdgeScroll = () => {
+    cancelAnimationFrame(edgeScrollRef.current)
+    edgeScrollRef.current = 0
+  }
+
+  /**
+   * The date-changing half of a drag: move, resize either edge, or draw a new
+   * block out.
+   *
+   * Separate from the pointer handler because it also has to run when nothing
+   * moved but the canvas scrolled under the cursor - during an edge
+   * auto-scroll there are no pointer events at all, and without re-running
+   * this the block simply stops following.
+   */
+  /** Modes whose result depends on where the pointer sits over the content. */
+  const isDateDrag = (d: NonNullable<typeof dragRef.current>) =>
+    d.mode === 'start' || d.mode === 'end' || d.mode === 'create' ||
+    (d.mode === 'move' && d.axis === 'x')
+
+  const applyHorizontal = (
+    d: NonNullable<typeof dragRef.current>,
+    clientX: number,
+    clientY: number,
+    free: boolean,
+  ) => {
+    const perDay = ppdRef.current
+    const sw = sidebarRef.current
+    // Screen movement plus whatever the canvas scrolled: what matters is where
+    // the pointer sits over the *content*, not over the window.
+    const scrolled = (scrollerRef.current?.scrollLeft ?? 0) - d.startScrollLeft
+    const dx = clientX - d.startClientX + scrolled
+    const toDay = (raw: number) => (free ? Math.round(raw) : snapDay(Math.round(raw), d.snapUnit))
+
+    if (d.mode === 'move') {
+      const ns = toDay(d.origStart + dx / perDay)
+      d.finalStart = ns
+      d.finalEnd = ns + (d.origEnd - d.origStart)
+      for (const el of d.els) el.style.transform = `translateX(${(ns - d.origStart) * perDay}px)`
+      showTip(clientX, clientY, spanLabel(d.finalStart, d.finalEnd, d.origStart === d.origEnd))
+      paintDepPaths(dragOverride(d))
+      showHeadRange(d.finalStart, d.finalEnd)
+    } else if (d.mode === 'start') {
+      const ns = Math.min(toDay(d.origStart + dx / perDay), d.origEnd)
+      d.finalStart = ns
+      d.finalEnd = d.origEnd
+      const left = d.origLeft + (ns - d.origStart) * perDay
+      if (d.primary) {
+        d.primary.style.left = `${left}px`
+        d.primary.style.width = `${Math.max(6, (d.origEnd + 1 - ns) * perDay)}px`
+      }
+      showGuide(left, d.sourceIndex, formatDate(dayToIso(ns)), true)
+      showTip(clientX, clientY, spanLabel(d.finalStart, d.finalEnd, false))
+      paintDepPaths(dragOverride(d))
+      showHeadRange(d.finalStart, d.finalEnd)
+    } else if (d.mode === 'end') {
+      const ne = Math.max(toDay(d.origEnd + dx / perDay), d.origStart)
+      d.finalStart = d.origStart
+      d.finalEnd = ne
+      const width = Math.max(6, (ne + 1 - d.origStart) * perDay)
+      if (d.primary) d.primary.style.width = `${width}px`
+      showGuide(d.origLeft + width, d.sourceIndex, formatDate(dayToIso(ne)), false)
+      showTip(clientX, clientY, spanLabel(d.finalStart, d.finalEnd, false))
+      paintDepPaths(dragOverride(d))
+      showHeadRange(d.finalStart, d.finalEnd)
+    } else if (d.mode === 'create') {
+      const ns = toDay(d.anchorDay + dx / perDay)
+      const a = Math.min(d.anchorDay, ns)
+      const b = Math.max(d.anchorDay, ns)
+      d.finalStart = a
+      d.finalEnd = b
+      if (d.ghost) {
+        d.ghost.style.left = `${sw + dayToX(a, perDay)}px`
+        d.ghost.style.width = `${Math.max(2, (b + 1 - a) * perDay)}px`
+      }
+      showTip(clientX, clientY, spanLabel(a, b, false))
+    }
+  }
+
+  applyHorizontalRef.current = applyHorizontal
+  isDateDragRef.current = isDateDrag
 
   const onPointerMove = (e: React.PointerEvent) => {
     const d = dragRef.current
@@ -1272,7 +1493,7 @@ export function Timeline() {
       const anyBar = (e.target as HTMLElement).closest('[data-bar-id]') as HTMLElement | null
       const anySpan = anyBar?.dataset.barId ? geo.get(anyBar.dataset.barId)?.span : undefined
       if (anySpan) showHeadRange(anySpan.startDay, anySpan.endDay)
-      else hideHeadRange()
+      else if (!(e.target as HTMLElement).closest('[data-row-kind="new"]')) hideHeadRange()
 
       // The "+ New" preview tracks the cursor: the block starts where you
       // press, not at some fixed date you then have to drag it away from.
@@ -1286,13 +1507,18 @@ export function Timeline() {
       if (newRow) {
         hoverNewRef.current = newRow
         const outline = newRow.querySelector<HTMLElement>('.new-outline')
+        const row = rows[Number(newRow.dataset.rowIndex)]
+        const resting = row?.kind === 'new' ? row.previewStart : todayDay()
+        const day = overCanvas(e.clientX) ? dayAtClientX(e.clientX) : resting
         if (outline) {
           if (overCanvas(e.clientX)) {
-            outline.style.left = `${sidebarRef.current + dayToX(dayAtClientX(e.clientX), ppdRef.current)}px`
+            outline.style.transform = `translateX(${dayToX(day, ppdRef.current)}px)`
           } else {
             resetNewPreview(newRow)
           }
         }
+        // The preview is a block-to-be, so call out its dates like any other.
+        showHeadRange(day, day + DEFAULT_DAYS - 1)
       }
 
       const barEl = h?.closest('[data-bar-id]') as HTMLElement | null
@@ -1354,8 +1580,12 @@ export function Timeline() {
 
     const perDay = ppdRef.current
     const sw = sidebarRef.current
-    const free = e.altKey
-    const toDay = (raw: number) => (free ? Math.round(raw) : snapDay(Math.round(raw), d.snapUnit))
+
+    // Remembered so an auto-scroll frame can carry on without a pointer event.
+    d.lastClientX = e.clientX
+    d.lastClientY = e.clientY
+    d.lastAlt = e.altKey
+    edgeScroll(d)
 
     if (d.mode === 'link') {
       const from = geo.get(d.linkFrom!)
@@ -1458,18 +1688,20 @@ export function Timeline() {
     }
 
     if (d.mode === 'reorder') {
-      const hovered = hitRowAt(e.clientX, e.clientY)
-      const id = hovered?.dataset.itemId
+      // Any row, not just one carrying an item: the "+ New" line below a
+      // branch is a legitimate thing to aim at, since the gaps around it are
+      // real drop points.
+      const hovered = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)
+        ?.closest('[data-row-index]') as HTMLElement | null
       layerRef.current?.querySelectorAll('.drop-line, .drop-into').forEach((n) => n.remove())
       d.dropTarget = null
-      if (!id || id === d.ids[0]) return
+      if (!hovered || hovered.dataset.itemId === d.ids[0]) return
 
       showDropTarget(
         d,
         e.clientX,
         e.clientY,
-        id,
-        Number(hovered!.style.top.replace('px', '')),
+        Number(hovered!.dataset.rowIndex),
         (e.clientY - hovered!.getBoundingClientRect().top) / rowH,
       )
       return
@@ -1490,55 +1722,17 @@ export function Timeline() {
         const idx = Math.max(0, Math.min(rows.length - 1, Math.floor(raw)))
         const row = rows[idx]
         const moving = new Set(d.ids)
-        if (row?.kind === 'item' && !moving.has(row.id) && idx !== d.sourceIndex) {
-          over = row.id
-          showDropTarget(d, e.clientX, e.clientY, row.id, idx * rowH, raw - Math.floor(raw))
+        // Any row, not just item rows: a "+ New" line is still a valid place
+        // to aim at, because the gap either side of it is a real drop point.
+        if (row && !(row.kind === 'item' && moving.has(row.id))) {
+          over = 'y'
+          showDropTarget(d, e.clientX, e.clientY, idx, raw - Math.floor(raw))
         }
       }
       // showDropTarget owns the tip when it has something to say.
       if (!over) showTip(e.clientX, e.clientY, 'Drag over a row')
-    } else if (d.mode === 'move') {
-      const ns = toDay(d.origStart + dx / perDay)
-      d.finalStart = ns
-      d.finalEnd = ns + (d.origEnd - d.origStart)
-      for (const el of d.els) el.style.transform = `translateX(${(ns - d.origStart) * perDay}px)`
-      showTip(e.clientX, e.clientY, spanLabel(d.finalStart, d.finalEnd, d.origStart === d.origEnd))
-      paintDepPaths(dragOverride(d))
-      showHeadRange(d.finalStart, d.finalEnd)
-    } else if (d.mode === 'start') {
-      const ns = Math.min(toDay(d.origStart + dx / perDay), d.origEnd)
-      d.finalStart = ns
-      d.finalEnd = d.origEnd
-      const left = d.origLeft + (ns - d.origStart) * perDay
-      if (d.primary) {
-        d.primary.style.left = `${left}px`
-        d.primary.style.width = `${Math.max(6, (d.origEnd + 1 - ns) * perDay)}px`
-      }
-      showGuide(left, d.sourceIndex, formatDate(dayToIso(ns)), true)
-      showTip(e.clientX, e.clientY, spanLabel(d.finalStart, d.finalEnd, false))
-      paintDepPaths(dragOverride(d))
-      showHeadRange(d.finalStart, d.finalEnd)
-    } else if (d.mode === 'end') {
-      const ne = Math.max(toDay(d.origEnd + dx / perDay), d.origStart)
-      d.finalStart = d.origStart
-      d.finalEnd = ne
-      const width = Math.max(6, (ne + 1 - d.origStart) * perDay)
-      if (d.primary) d.primary.style.width = `${width}px`
-      showGuide(d.origLeft + width, d.sourceIndex, formatDate(dayToIso(ne)), false)
-      showTip(e.clientX, e.clientY, spanLabel(d.finalStart, d.finalEnd, false))
-      paintDepPaths(dragOverride(d))
-      showHeadRange(d.finalStart, d.finalEnd)
-    } else if (d.mode === 'create') {
-      const ns = toDay(d.anchorDay + dx / perDay)
-      const a = Math.min(d.anchorDay, ns)
-      const b = Math.max(d.anchorDay, ns)
-      d.finalStart = a
-      d.finalEnd = b
-      if (d.ghost) {
-        d.ghost.style.left = `${sw + dayToX(a, perDay)}px`
-        d.ghost.style.width = `${Math.max(2, (b + 1 - a) * perDay)}px`
-      }
-      showTip(e.clientX, e.clientY, spanLabel(a, b, false))
+    } else {
+      applyHorizontal(d, e.clientX, e.clientY, e.altKey)
     }
   }
 
@@ -1560,6 +1754,7 @@ export function Timeline() {
     d.copy?.remove()
     layerRef.current?.querySelectorAll('.drop-line, .drop-into').forEach((n) => n.remove())
     linkPathRef.current?.setAttribute('d', '')
+    stopEdgeScroll()
     delete document.body.dataset.drag
     // Drop the easing first: the lines below restore the pre-drag inline
     // values, and those must snap back, not glide.

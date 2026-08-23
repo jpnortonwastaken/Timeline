@@ -167,7 +167,7 @@ export function ContextMenu({
         ? []
         : [
             {
-              label: item.end ? 'Turn into milestone' : 'Give it a span',
+              label: item.end ? 'Turn into milestone' : 'Turn into span',
               icon: item.end ? <IconMilestone /> : <IconSpan />,
               run: run(() =>
                 updateItem(id, {
@@ -322,7 +322,7 @@ export function ContextMenu({
               <button
                 className="swatch inherit"
                 title="Inherit from lane"
-                onClick={run(() => target.forEach((t) => updateItem(t, { colorId: null }, true)))}
+                onClick={run(() => target.forEach((t) => updateItem(t, { colorId: null })))}
               />
             )}
             {COLORS.map((c) => (
@@ -333,7 +333,7 @@ export function ContextMenu({
                 onClick={run(() =>
                   laneTarget
                     ? updateLane(laneTarget, { colorId: c.id })
-                    : target.forEach((t) => updateItem(t, { colorId: c.id }, true)),
+                    : target.forEach((t) => updateItem(t, { colorId: c.id })),
                 )}
               />
             ))}

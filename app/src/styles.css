@@ -41,6 +41,10 @@
 
   /* Expand/collapse reveal. Keep --reveal in step with REVEAL_MS in
      Timeline.tsx, which decides how long the fading-out rows stay mounted. */
+  /* Wash laid over the overview outside the view box, so only what you are
+     actually looking at reads at full strength. Matches --bg-sunken. */
+  --mini-veil: rgba(247, 247, 245, 0.66);
+
   --reveal: 240ms;
   --reveal-ease: cubic-bezier(0.32, 0.72, 0, 1);
   --card-shadow: rgba(15, 15, 15, 0.05) 0 1px 2px;
@@ -89,6 +93,8 @@
 
   /* Black rather than ink, so the well still sinks. 0.2 against the dark
      surface moves it about as far as 0.017 of ink does on white. */
+  --mini-veil: rgba(32, 32, 32, 0.66);
+
   --nest-wash: rgba(0, 0, 0, 0.2);
   --nest-shadow: rgba(0, 0, 0, 0.55);
 
@@ -211,15 +217,15 @@ button { cursor: pointer; }
 
 .brand { display: flex; align-items: center; gap: 7px; padding-right: 6px; }
 .brand-mark {
-  width: 16px; height: 16px; border-radius: var(--r-xs);
-  background: var(--text);
-  position: relative;
+  width: 17px; height: 17px; flex: 0 0 auto;
+  border-radius: var(--r-xs);
+  object-fit: cover;
 }
-.brand-mark::before, .brand-mark::after {
-  content: ''; position: absolute; height: 2.5px; border-radius: var(--r-xs); background: var(--bg);
-}
-.brand-mark::before { left: 3px; top: 4.5px; width: 10px; }
-.brand-mark::after { left: 5.5px; top: 9px; width: 7.5px; opacity: 0.65; }
+/* Each artwork carries its own background, so show the one that matches the
+   surface it sits on rather than tinting a single asset. */
+.brand-mark.dark { display: none; }
+:root[data-theme='dark'] .brand-mark.light { display: none; }
+:root[data-theme='dark'] .brand-mark.dark { display: block; }
 .brand-name { font-weight: 600; font-size: 14px; letter-spacing: -0.01em; }
 
 .tb-group { display: flex; align-items: center; gap: 6px; }
@@ -741,9 +747,11 @@ body[data-drag='end'] .edge-label {
 .draft-twisty {
   opacity: 0;
   transform: translateX(-5px);
+  /* Matched to the twisty on the bar. At 0.14s the fade was over before the
+     eye caught it, so it read as appearing rather than fading. */
   transition:
-    opacity 0.14s ease,
-    transform 0.18s cubic-bezier(0.32, 0.72, 0, 1);
+    opacity 0.22s ease,
+    transform 0.22s cubic-bezier(0.32, 0.72, 0, 1);
 }
 /* Scoped to `.side`: the twisty on the bar has its own trigger below, so that
    one doesn't light up merely because the row is hovered. */
@@ -838,8 +846,12 @@ body[data-drag='end'] .edge-label {
   background: rgba(var(--ink-rgb), 0.04);
   border-radius: var(--r-md);
   opacity: 0; pointer-events: none;
-  /* Days snap, so the preview would otherwise hop between whole units. */
-  transition: opacity 0.12s ease, left 90ms cubic-bezier(0.2, 0, 0, 1);
+  /* No easing on the move: this is a cursor position, not an animation, and
+     any interpolation at all reads as lag. It is placed with a transform
+     rather than `left` so each frame is a composite, not a relayout. Only the
+     fade in and out is timed. */
+  will-change: transform;
+  transition: opacity 0.12s ease;
 }
 /* The drag ghost takes over once a create gesture starts. */
 body[data-drag] .new-outline { opacity: 0; }
@@ -886,9 +898,18 @@ body[data-drag] .new-outline { opacity: 0; }
   padding: 0 9px;
 }
 .bar-inner.outside {
-  position: absolute; left: calc(100% + 6px); top: 50%;
+  position: absolute; left: calc(100% + 8px); top: 50%;
   transform: translateY(-50%);
   max-width: none; padding: 0;
+  /* Above the end port, so the twisty takes its own clicks. What is left of
+     the port is the sliver between the bar's edge and this label - the only
+     place you can reach for a dependency, and the only place that moves the
+     label aside. */
+  z-index: 5;
+  transition: left 0.16s cubic-bezier(0.32, 0.72, 0, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar-inner.outside { transition: none; }
 }
 .bar-label {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -926,6 +947,8 @@ body[data-drag] .new-outline { opacity: 0; }
 .bar:hover .bar-chev.draft-twisty,
 .bar-chev.draft-twisty.on,
 .bar-chev.draft-twisty:focus-visible { width: 15px; margin-left: -3px; }
+.bar-inner.outside .bar-chev,
+.bar-inner.outside .bar-chev.draft-twisty { margin-left: 0; }
 /* Arriving: let the space open first, then fade into it. */
 .bar:hover .bar-chev.draft-twisty .chev,
 .bar-chev.draft-twisty.on .chev,
@@ -1002,8 +1025,30 @@ body[data-drag] .new-outline { opacity: 0; }
   opacity: 0;
   transition: opacity 0.1s ease, transform 0.1s ease;
 }
-.link-port-end { right: -25px; }
+/* Offsets resolve against the bar's padding box, which its 1px border sits
+   outside of - so these numbers are one off the gap you actually see. Sized to
+   start flush with the bar's outer edge (the sliver has to begin where the
+   block ends, not a pixel inside it) and to put the dot's centre 13px out,
+   mirroring the start port. */
+.link-port-end { right: -25px; width: 24px; }
+.link-port-end::before { left: 7.5px; right: auto; }
 .link-port-start { left: -25px; }
+/*
+ * A bar too narrow for its title wears the label outside, to the right - the
+ * same place the end port's invisible 22px target sits (it spans +3px to +25px
+ * past the bar), and the port wins on z-index, so it used to swallow every
+ * click meant for the label's twisty.
+ *
+ * The label wins on z-index, so it keeps its own clicks and can sit close to
+ * its block permanently. That leaves the port reachable only through the
+ * sliver between the bar's edge and the label - and reaching for it is the one
+ * thing that steps the label aside, which uncovers the rest of the port and
+ * the dot with it. Hovering the block itself changes nothing, so a label you
+ * are only passing over stays put.
+ */
+.bar.label-outside:has(.link-port-end:hover) .bar-inner.outside {
+  left: calc(100% + 28px);
+}
 .link-port:hover::before, .linking .link-port::before { opacity: 1; }
 .link-port:hover::before { transform: scale(1.2); }
 
@@ -1204,10 +1249,16 @@ body[data-drag='end'] .head-range {
 /* `top` and `height` come from the component - the box shows the vertical
    slice of rows on screen as well as the date range, so it is the actual
    viewport rather than a full-height column. */
+/* The window is the *clear* part: a big spread shadow veils everything
+   outside it, which `.minimap`'s overflow clips to the strip. One element
+   rather than a second, brighter copy of every bar - and it follows the box
+   for free when it moves. No fill inside, or the thing you are looking at
+   would be tinted too. */
 .mini-window {
   position: absolute;
-  background: rgba(var(--ink-rgb), 0.07);
-  box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), 0.3);
+  box-shadow:
+    inset 0 0 0 1px rgba(var(--ink-rgb), 0.3),
+    0 0 0 9999px var(--mini-veil);
   border-radius: var(--r-xs); cursor: grab;
 }
 .mini-window:active { cursor: grabbing; }

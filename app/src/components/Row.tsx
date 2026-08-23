@@ -116,6 +116,32 @@ function LaneEditor({ id, initial }: { id: string; initial: string }) {
   )
 }
 
+/** Font of `.bar-label`, for measuring. Keep in step with styles.css. */
+const LABEL_FONT =
+  "500 14px ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+
+/**
+ * Width of a bar label in px, measured once per string and cached. Canvas
+ * measurement rather than a character-count guess: titles vary far too much in
+ * width for an average to be any use in deciding whether one fits.
+ */
+const labelWidth = (() => {
+  const cache = new Map<string, number>()
+  let ctx: CanvasRenderingContext2D | null | undefined
+  return (text: string) => {
+    const hit = cache.get(text)
+    if (hit !== undefined) return hit
+    if (ctx === undefined) ctx = document.createElement('canvas').getContext('2d')
+    if (!ctx) return text.length * 7.4
+    ctx.font = LABEL_FONT
+    const w = ctx.measureText(text).width
+    // Plenty for one plan; clearing wholesale beats tracking use counts.
+    if (cache.size > 4000) cache.clear()
+    cache.set(text, w)
+    return w
+  }
+})()
+
 function RowImpl({
   row,
   index,
@@ -173,8 +199,12 @@ function RowImpl({
             shows exactly the block you're about to create. */}
         <div
           className="new-outline"
+          /* Placed with a transform rather than `left`: this follows the cursor,
+             and animating `left` relayouts and repaints the whole dashed box
+             every frame, where a transform is composited and just moves. */
           style={{
-            left: sidebarWidth + dayToX(row.previewStart, ppd),
+            left: sidebarWidth,
+            transform: `translateX(${dayToX(row.previewStart, ppd)}px)`,
             width: Math.max(6, 7 * ppd),
             top: Math.round(height * 0.13),
             height: height - Math.round(height * 0.13) * 2,
@@ -244,7 +274,18 @@ function RowImpl({
   const barLeft = span ? sidebarWidth + dayToX(span.startDay, ppd) : 0
   const barWidth = span ? Math.max(6, (span.endDay + 1 - span.startDay) * ppd) : 0
   // Below this the label can't live inside the bar, so it sits alongside it.
-  const labelOutside = barWidth < 46
+  /*
+   * Outside when the title genuinely doesn't fit, not below a fixed width.
+   * Truncating to "Rewrite por…" tells you nothing a full label to the side
+   * wouldn't tell you better, so the only reason to keep a label inside is
+   * that all of it fits.
+   *
+   * The twisty's 15px is reserved even on childless bars, where it is 0 wide
+   * until hovered: leaving it out meant a snug label popped outside the moment
+   * you moused over the bar.
+   */
+  const labelText = item.title || 'Untitled'
+  const labelOutside = barWidth < labelWidth(labelText) + 18 + 15 + 2
   const soft = item.start?.precision && item.start.precision !== 'day'
   // Only an explicitly chosen color tints the card; lane-inherited color stays
   // in the sidebar dot, so the default canvas reads as clean white cards.
@@ -364,7 +405,8 @@ function RowImpl({
             (tinted ? ' tinted' : '') +
             (soft ? ' soft' : '') +
             (item.status === 'done' ? ' is-done' : '') +
-            (item.status === 'dropped' ? ' is-dropped' : '')
+            (item.status === 'dropped' ? ' is-dropped' : '') +
+            (labelOutside ? ' label-outside' : '')
           }
           data-bar-id={ghost ? undefined : item.id}
           style={{ left: barLeft, width: barWidth, top: barTop, height: barHeight }}
@@ -401,7 +443,7 @@ function RowImpl({
                 <Chevron open={row.draftChild} />
               </button>
             )}
-            <span className="bar-label">{item.title || 'Untitled'}</span>
+            <span className="bar-label">{labelText}</span>
           </span>
           {!span.derived && <span className="handle handle-end" data-handle="end" />}
           <span className="link-port link-port-start" data-port="in" />

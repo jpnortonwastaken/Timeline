@@ -17,7 +17,7 @@ fn item(app: &AppHandle, id: &str, label: &str, accel: Option<&str>) -> tauri::R
 /// view, and the app's own history is what the user actually wants back.
 /// Cut/copy/paste stay predefined so text fields behave normally.
 fn build_menu(app: &AppHandle) -> tauri::Result<()> {
-    let app_menu = SubmenuBuilder::new(app, "Timeline")
+    let app_menu = SubmenuBuilder::new(app, "Timelime")
         .about(None)
         .separator()
         .services()

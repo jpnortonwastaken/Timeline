@@ -23,7 +23,7 @@ export function Minimap() {
   const viewRowTo = useStore((s) => s.viewRowTo)
   const fullHeight = useStore((s) => s.minimapFullHeight)
   const ref = useRef<HTMLDivElement>(null)
-  const drag = useRef<{ grabOffsetDays: number } | null>(null)
+  const drag = useRef<{ grabOffsetDays: number; grabOffsetRows: number | null } | null>(null)
 
   const { rows } = useMemo(
     () => flatten({ items, lanes, search: '', noLaneCollapsed, draftChildren }),
@@ -81,6 +81,27 @@ export function Minimap() {
     return out
   }, [range.from, range.to, totalDays])
 
+  /**
+   * Vertical position as a row index. The strip plots one slot per block while
+   * the canvas counts every row, so this walks the flattened list back the
+   * other way - slot under the pointer -> the row that owns it.
+   */
+  const rowAtClientY = (clientY: number) => {
+    const el = ref.current
+    if (!el || fullHeight) return null
+    const rect = el.getBoundingClientRect()
+    const slot = Math.max(0, (clientY - rect.top - 7) / step)
+    let seen = 0
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i]
+      if (r.kind === 'item' && r.span) {
+        if (seen >= slot) return i
+        seen++
+      }
+    }
+    return rows.length - 1
+  }
+
   const dayAtClientX = (clientX: number) => {
     const el = ref.current
     if (!el) return today
@@ -120,14 +141,24 @@ export function Minimap() {
   const onDown = (e: React.PointerEvent) => {
     const day = dayAtClientX(e.clientX)
     const inWindow = day >= viewFrom && day <= viewTo
-    drag.current = { grabOffsetDays: inWindow ? day - viewFrom : windowDays / 2 }
+    // Vertical too, when the box represents a slice of rows rather than the
+    // whole column - otherwise there is a visible box you can't move.
+    const row = rowAtClientY(e.clientY)
+    const grabOffsetRows =
+      row === null ? null : row >= viewRowFrom && row <= viewRowTo ? row - viewRowFrom : 0
+    drag.current = { grabOffsetDays: inWindow ? day - viewFrom : windowDays / 2, grabOffsetRows }
     cmd.goToDay(day - drag.current.grabOffsetDays, 0, !inWindow)
+    if (row !== null && grabOffsetRows !== null) cmd.scrollToRow(row - grabOffsetRows)
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
   }
 
   const onMove = (e: React.PointerEvent) => {
     if (!drag.current) return
     cmd.goToDay(dayAtClientX(e.clientX) - drag.current.grabOffsetDays, 0, false)
+    const row = rowAtClientY(e.clientY)
+    if (row !== null && drag.current.grabOffsetRows !== null) {
+      cmd.scrollToRow(row - drag.current.grabOffsetRows)
+    }
   }
 
   const onUp = (e: React.PointerEvent) => {
