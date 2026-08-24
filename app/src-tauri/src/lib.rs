@@ -87,6 +87,12 @@ fn build_menu(app: &AppHandle) -> tauri::Result<()> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
+        // Sign-in happens in the user's real browser, not in this WebView:
+        // Google refuses OAuth from an embedded web view, and it is the right
+        // call anyway - nobody should type a Google password into a window an
+        // app drew. `oauth` is the loopback listener Google redirects back to.
+        .plugin(tauri_plugin_oauth::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(

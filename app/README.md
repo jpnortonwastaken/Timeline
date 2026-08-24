@@ -470,14 +470,14 @@ its menu.
 
 ## Where the Mac app's data actually lives
 
-Not in `~/Library/Application Support/com.jpn.timeline/timeline.json`. That
+Not in `~/Library/Application Support/com.jpn.timelime/timeline.json`. That
 file is only a *backup*: `App.tsx` reads it at startup solely when localStorage
 came up empty (`if (!isTauri || hadStoredState) return`), and the store
 rewrites it on every change.
 
 The live store is WKWebView's localStorage:
 
-    ~/Library/WebKit/com.jpn.timeline/WebsiteData/Default/<hash>/<hash>/
+    ~/Library/WebKit/com.jpn.timelime/WebsiteData/Default/<hash>/<hash>/
         LocalStorage/localstorage.sqlite3
 
 Editing the backup therefore does nothing - the app loads its own copy and
@@ -491,6 +491,55 @@ To change stored data, go through the app: a version-gated migration in
 `load()`. Bumping `VERSION` alone is *not* enough - the old code returned
 `null` on a mismatch, which discards the plan and reseeds. Migrate, don't
 reject.
+
+## Cloud sync setup
+
+Sync is off unless the build is configured. `firebaseConfigured` is false with
+no `.env`, every entry point bails, and the app is exactly the local-only tool
+it was before - which is also what every user sees before they sign in, so it
+has to keep working.
+
+Copy `.env.example` to `.env` and fill it from two places in the same Google
+Cloud project:
+
+**Firebase console** > Project settings > Your apps > Web app gives the six
+`VITE_FIREBASE_*` values. None of them are secrets; Firebase ships them in
+every web client it generates. `firestore.rules` is what protects the data.
+
+**Google Cloud console** > APIs & Services > Credentials > Create OAuth client
+> **Desktop app** gives `VITE_GOOGLE_CLIENT_ID` and `VITE_GOOGLE_CLIENT_SECRET`.
+It has to be a Desktop client: only that type accepts a `http://127.0.0.1:<port>`
+redirect on an arbitrary port, which is what the loopback listener needs. And it
+has to be in the *same* project as Firebase, or Firebase will not accept the ID
+token it issues.
+
+Deploy the rules with `firebase deploy --only firestore:rules`. Until you do,
+Firestore is in whatever mode the console defaulted to - test mode expires and
+then everything fails at once, which reads like a bug in the app.
+
+## Why sign-in opens a real browser
+
+Google answers `disallowed_useragent` to OAuth from an embedded web view, and
+this app is one. `signInWithPopup` has no popup to open either. So `auth.ts`
+runs the native flow from RFC 8252: a loopback listener on a random port, the
+consent screen in the user's own browser, then an authorization code exchanged
+for an ID token that Firebase accepts via `signInWithCredential`.
+
+The exchange goes through the Rust HTTP plugin rather than `fetch`. It carries
+the client secret, and `fetch` would both expose it to page script and send an
+Origin header Google has no reason to accept.
+
+`state` is checked on the way back. Without it any redirect that reached the
+listener would look like a valid answer to this request.
+
+## The CSP is real now
+
+`app.security.csp` used to be `null`, which was defensible while nothing left
+the machine. It is a real policy now, and it is an allowlist: a new Google
+endpoint means a new `connect-src` entry, and the failure mode is a blocked
+request that looks like a network error. `style-src` keeps `'unsafe-inline'`
+because React writes inline style attributes and there is no nonce path for
+those; `script-src` stays `'self'`, which is the one that matters.
 
 ## Bar edges
 

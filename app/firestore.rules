@@ -1,0 +1,24 @@
+rules_version = '2';
+
+/*
+ * One document per account, and nothing readable across accounts.
+ *
+ * The plan is stored under `plans/{uid}` with per-record maps inside it, so a
+ * single ownership check covers every item, lane and dependency. If that
+ * document is ever split into a subcollection per item, the same `uid == owner`
+ * rule has to be repeated on the children - a rule on the parent does NOT
+ * cascade in Firestore.
+ */
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /plans/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Anything not matched above is denied. Left explicit so that adding a
+    // collection later is a deliberate act rather than an accident.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
