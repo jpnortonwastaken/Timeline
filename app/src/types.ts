@@ -1,3 +1,5 @@
+import type { Revisions } from './lib/revisions'
+
 export type ItemId = string
 export type LaneId = string
 
@@ -63,6 +65,8 @@ export interface Snapshot {
 
 export interface PersistedState extends Snapshot {
   version: number
+  /** Per-record change stamps for sync. Absent on plans that predate it. */
+  revisions?: Revisions
   ppd: number
   sidebarWidth: number
   density: Density

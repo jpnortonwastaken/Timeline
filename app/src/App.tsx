@@ -5,6 +5,7 @@ import { DetailPanel } from './components/DetailPanel'
 import { Minimap } from './components/Minimap'
 import { hadStoredState, useStore } from './store'
 import { isTauri, onMenuCommand, readBackup } from './lib/tauri'
+import { initAccount } from './lib/account'
 import { downloadJSON, pickAndImport } from './lib/io'
 import { flatten } from './lib/tree'
 import { addUnits, dayToIso, isoToDay, tierFor, todayDay, ZOOM_PRESETS } from './lib/time'
@@ -67,6 +68,12 @@ export default function App() {
     void readBackup().then((raw) => {
       if (raw) useStore.getState().hydrate(raw)
     })
+  }, [])
+
+  /* Restore the session, if there is one, and mirror it into sync. A no-op in
+     a build with no Firebase project. */
+  useEffect(() => {
+    initAccount()
   }, [])
 
   /** One place both the native menu and the keyboard route through. */

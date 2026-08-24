@@ -22,5 +22,7 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  /* A node script, not app code - it has no place in the bundle's typecheck. */
+  "exclude": ["src/**/*.test.ts"]
 }

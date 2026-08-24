@@ -1,11 +1,14 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import { POP_OUT_MS, presenceClass, usePresence } from '../lib/presence'
 import { ALL_COLUMNS, useStore } from '../store'
-import { IconExport, IconImport } from './icons'
+import { IconExport, IconImport, IconSignIn, IconSignOut, IconSync } from './icons'
 import { MAX_PPD, MIN_PPD, todayDay, ZOOM_PRESETS } from '../lib/time'
 import { cmd } from '../lib/viewport'
 import type { Density, ThemeMode } from '../types'
 import { downloadJSON, pickAndImport } from '../lib/io'
+import { firebaseConfigured } from '../lib/firebase'
+import { signIn, signOutAccount, useAccount, useSyncStatus } from '../lib/account'
+import type { SyncState } from '../lib/sync'
 
 /** Drawn on a 12-unit box, spanning most of it so the tick actually reads at
  *  checkbox size rather than looking like a plain filled square. */
@@ -24,6 +27,99 @@ function RadioItem({ label, on, onClick }: { label: string; on: boolean; onClick
       <span className={'menu-radio' + (on ? ' on' : '')} />
       <span className="menu-label">{label}</span>
     </button>
+  )
+}
+
+/**
+ * What sync is doing, in words rather than a coloured dot.
+ *
+ * "Offline" is stated plainly and without alarm: the plan is on this machine
+ * and nothing is at risk, so it deserves the same tone as any other state.
+ */
+function syncLine(sync: SyncState): string {
+  switch (sync.status) {
+    case 'syncing':
+      return 'Saving to the cloud…'
+    case 'offline':
+      return 'Offline — this Mac has everything'
+    case 'error':
+      return sync.message ?? 'Sync ran into a problem'
+    case 'connecting':
+      return 'Connecting…'
+    case 'synced':
+      return sync.at ? `Synced ${relativeTime(sync.at)}` : 'Synced'
+    default:
+      return ''
+  }
+}
+
+function relativeTime(at: number): string {
+  const secs = Math.round((Date.now() - at) / 1000)
+  if (secs < 45) return 'just now'
+  const mins = Math.round(secs / 60)
+  if (mins < 60) return `${mins} min ago`
+  const hrs = Math.round(mins / 60)
+  return hrs < 24 ? `${hrs} h ago` : `${Math.round(hrs / 24)} d ago`
+}
+
+/**
+ * Sign-in, and what sync is up to.
+ *
+ * Absent entirely from a build with no Firebase project, rather than shown
+ * disabled - an account nobody can create is not a feature to advertise.
+ */
+function AccountSection({ close }: { close: (fn: () => void) => () => void }) {
+  const { phase, account, error, busy } = useAccount()
+  const sync = useSyncStatus()
+  if (!firebaseConfigured) return null
+
+  return (
+    <>
+      <p className="menu-head">Account</p>
+      {phase === 'in' && account ? (
+        <>
+          <div className="menu-account">
+            {account.photo ? (
+              <img className="menu-avatar" src={account.photo} alt="" referrerPolicy="no-referrer" />
+            ) : (
+              <span className="menu-avatar menu-avatar-blank" aria-hidden />
+            )}
+            <span className="menu-account-text">
+              <span className="menu-account-name">{account.name ?? 'Signed in'}</span>
+              {account.email && <span className="menu-account-mail">{account.email}</span>}
+            </span>
+          </div>
+          {sync.status !== 'off' && (
+            <p className={'menu-note' + (sync.status === 'error' ? ' warn' : '')}>
+              <IconSync />
+              {syncLine(sync)}
+            </p>
+          )}
+          <button className="menu-item" disabled={busy} onClick={close(() => void signOutAccount())}>
+            <IconSignOut />
+            <span className="menu-label">Sign out</span>
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            className="menu-item"
+            disabled={busy || phase === 'unknown'}
+            onClick={() => void signIn()}
+          >
+            <IconSignIn />
+            <span className="menu-label">
+              {busy ? 'Waiting for your browser…' : 'Sign in with Google'}
+            </span>
+          </button>
+          <p className="menu-note">
+            Sync your plan across Macs. It stays on this one either way.
+          </p>
+        </>
+      )}
+      {error && <p className="menu-note warn">{error}</p>}
+      <div className="menu-sep" />
+    </>
   )
 }
 
@@ -188,6 +284,7 @@ function ViewMenu() {
       </button>
       {menuPresence.mounted && (
         <div className={'menu-body pop' + presenceClass(menuPresence.leaving)} role="menu">
+          <AccountSection close={close} />
           <p className="menu-head">Appearance</p>
           {(['light', 'dark', 'auto'] as ThemeMode[]).map((m) => (
             <RadioItem

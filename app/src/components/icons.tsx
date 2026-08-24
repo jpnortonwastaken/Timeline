@@ -128,3 +128,26 @@ export const IconPalette = () => (
     <circle cx="10.7" cy="8.4" r="0.9" fill="currentColor" stroke="none" />
   </Glyph>
 )
+
+export const IconSignIn = () => (
+  <Glyph>
+    <path d="M9.4 2.8h2.4a1.6 1.6 0 0 1 1.6 1.6v7.2a1.6 1.6 0 0 1-1.6 1.6H9.4" />
+    <path d="M6.6 10.8 9.4 8 6.6 5.2M9.4 8H2.6" />
+  </Glyph>
+)
+
+export const IconSignOut = () => (
+  <Glyph>
+    <path d="M6.6 2.8H4.2a1.6 1.6 0 0 0-1.6 1.6v7.2a1.6 1.6 0 0 0 1.6 1.6h2.4" />
+    <path d="M10.6 10.8 13.4 8l-2.8-2.8M13.4 8H6.6" />
+  </Glyph>
+)
+
+/** Two arrows chasing each other - the usual shorthand for a sync round trip. */
+export const IconSync = () => (
+  <Glyph>
+    <path d="M13.2 7.2a5.2 5.2 0 0 0-9.1-2.6L2.8 6" />
+    <path d="M2.8 8.8a5.2 5.2 0 0 0 9.1 2.6L13.2 10" />
+    <path d="M2.8 3.2V6h2.8M13.2 12.8V10h-2.8" />
+  </Glyph>
+)

@@ -17,6 +17,8 @@ import { clampPpd, dayToIso, isoToDay, todayDay } from './lib/time'
 import { relax, wouldCycle } from './lib/deps'
 import { seed } from './lib/seed'
 import { writeBackup } from './lib/tauri'
+import { connectPlan } from './lib/sync'
+import { seedRevisions, trackChanges, type Revisions } from './lib/revisions'
 
 const STORAGE_KEY = 'timeline.v1'
 const LEGACY_KEY = 'linea.v1'
@@ -671,6 +673,53 @@ export const statusLabel: Record<Status, string> = {
   dropped: 'Dropped',
 }
 
+// -- sync bookkeeping --------------------------------------------------------
+/*
+ * Which records changed, and when. Kept beside the plan rather than inside it:
+ * every mutation would otherwise have to remember to stamp itself, and the ones
+ * that forgot would be invisible to sync until something else touched the same
+ * record. Diffing the snapshot catches every path - including undo and redo,
+ * which restore records and should absolutely count as changes.
+ *
+ * Plans written before sync existed have no revisions; seeding from each item's
+ * own `updatedAt` is the closest thing to the truth available.
+ */
+let revisions: Revisions =
+  persisted?.revisions ?? seedRevisions({ items: initial.items, lanes: initial.lanes, deps: initial.deps } as Snapshot)
+
+/** Set while a merge is being applied, so it is not re-reported as a local edit. */
+let applyingMerge = false
+
+useStore.subscribe((s, prev) => {
+  if (applyingMerge) return
+  revisions = trackChanges(prev, s, revisions)
+})
+
+connectPlan({
+  read: () => ({ data: snapshot(useStore.getState()), revs: revisions }),
+  write: (data, revs) => {
+    applyingMerge = true
+    try {
+      revisions = revs
+      /* No `commit()`: a merge arriving from another device is not something
+         the user did here, and putting it on the undo stack would let Cmd-Z
+         appear to reverse someone else's edit. */
+      useStore.setState({ items: data.items, lanes: data.lanes, deps: data.deps })
+    } finally {
+      applyingMerge = false
+    }
+  },
+  subscribe: (fn) => {
+    let last = snapshot(useStore.getState())
+    return useStore.subscribe((s) => {
+      const next = snapshot(s)
+      if (next.items === last.items && next.lanes === last.lanes && next.deps === last.deps) return
+      last = next
+      fn()
+    })
+  },
+})
+
 // -- persistence -------------------------------------------------------------
 let saveTimer: number | undefined
 useStore.subscribe((s) => {
@@ -681,6 +730,7 @@ useStore.subscribe((s) => {
       items: s.items,
       lanes: s.lanes,
       deps: s.deps,
+      revisions,
       ppd: s.ppd,
       autoShift: s.autoShift,
       noLaneCollapsed: s.noLaneCollapsed,
