@@ -16,7 +16,7 @@
  */
 import type { Snapshot } from '../types'
 import { firebase } from './firebase'
-import { emptyRevisions, mergePlans, seedRevisions, type Revisions, type Side } from './revisions'
+import { emptyRevisions, resolvePlan, seedRevisions, type Revisions, type Side } from './revisions'
 
 /** Bump only for a change to the document's shape, not to the plan's. */
 const SCHEMA = 1
@@ -59,10 +59,6 @@ interface Doc {
 }
 
 const emptyDoc = (): Doc => ({ data: { items: {}, lanes: {}, deps: {} }, revs: emptyRevisions() })
-
-/** An account that has never synced has a document, but nothing in it. */
-const hasRecords = (d: Snapshot) =>
-  Object.keys(d.items).length > 0 || Object.keys(d.lanes).length > 0
 
 /**
  * The plan travels as two JSON strings rather than as nested Firestore maps.
@@ -154,15 +150,7 @@ export async function startSync(uid: string): Promise<void> {
         const snap = await tx.get(ref)
         const remote = decode(snap.data())
         const local = bridge!.read()
-        /*
-         * Signing in on a new machine: adopt the cloud outright rather than
-         * merging. The local side is the sample plan, and its records are
-         * genuinely unknown to the merge - blending them in would sprinkle 22
-         * sample items through a real plan and then sync them everywhere else.
-         */
-        const m = bridge!.isPristine() && hasRecords(remote.data)
-          ? { data: remote.data, revs: remote.revs, changedLocal: true, changedRemote: false }
-          : mergePlans(local, remote)
+        const m = resolvePlan(local, remote, bridge!.isPristine())
         if (m.changedRemote) {
           const body = encode({ data: m.data, revs: m.revs })
           if (body.payload.length > SIZE_WARN) {

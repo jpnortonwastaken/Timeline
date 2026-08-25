@@ -89,24 +89,39 @@ export function initAccount(): void {
   })()
 }
 
+/**
+ * Which attempt is current.
+ *
+ * Starting a sign-in aborts any previous one, and the aborted attempt then
+ * runs its own cleanup - which would clear `busy` belonging to the attempt
+ * that just replaced it, leaving the button reading "Sign in" while a browser
+ * tab sits open waiting. Only the newest attempt is allowed to report state.
+ */
+let attempt = 0
+
+/** Pressing again restarts: the usual reason to press twice is a closed tab. */
 export async function signIn(): Promise<void> {
+  const mine = ++attempt
   setState({ busy: true, error: null })
   try {
     const { signInWithGoogle } = await import('./auth')
     await signInWithGoogle()
     /* `subscribeUser` reports the new session and starts sync; nothing to do. */
   } catch (err) {
+    if (mine !== attempt) return
     const { SignInCancelled } = await import('./auth')
     /* Backing out is a decision, not a fault - it leaves no message behind. */
     if (err instanceof SignInCancelled) setState({ error: null })
     else setState({ error: err instanceof Error ? err.message : String(err) })
   } finally {
-    setState({ busy: false })
+    if (mine === attempt) setState({ busy: false })
   }
 }
 
 /** Abandon an attempt that is still waiting on the browser. */
 export async function cancelSignIn(): Promise<void> {
+  attempt++
+  setState({ busy: false, error: null })
   const { cancelSignIn: cancel } = await import('./auth')
   cancel()
 }

@@ -492,6 +492,45 @@ To change stored data, go through the app: a version-gated migration in
 `null` on a mismatch, which discards the plan and reseeds. Migrate, don't
 reject.
 
+## Releasing
+
+`npm run release` builds, signs, notarizes and staples a universal `.dmg`, and
+finishes by assessing a quarantined copy the way Gatekeeper actually will. It
+refuses to start without a Developer ID certificate, a `timelime` notarytool
+keychain profile, and both Rust targets installed.
+
+Three things have to be true before the app runs on somebody else's Mac, and
+they fail differently: **signed** or Gatekeeper has nothing to check;
+**notarized** or first launch says "malicious software"; **stapled** or the
+check only passes while that person happens to be online.
+
+The order is forced and it is not the obvious one. Tauri's dmg bundler *moves*
+the `.app` into the disk image and re-signs it on the way, which destroys any
+staple applied beforehand and leaves `bundle/macos` empty. So the app is
+notarized and stapled alone first, and the image is assembled around the
+stapled copy - two trips to Apple, because a rebuilt image has a new hash and
+needs its own ticket. Skipping the second one is what leaves an app that works
+online and fails on a train.
+
+`bundle_dmg.sh` and its applescript template only appear in whichever target
+directory Tauri last ran its dmg bundler in, so a universal build has neither;
+the script borrows them from any previous build, keeping the two-levels-up
+relationship the script expects between itself and `share/create-dmg/support`.
+
+Builds are universal. An arm64-only build gives Intel users a baffling failure
+rather than a working app, and the check for both architectures is in the
+script because it is not visible in anything else it prints.
+
+The Apple password is never in the script, the environment or the shell
+history - `notarytool` reads it from a keychain profile created once by hand:
+
+    xcrun notarytool store-credentials "timelime" \
+        --apple-id "<your apple id>" --team-id "9X945ZDXM2"
+
+Note the signing certificate expires 1 Feb 2027. Anything already shipped keeps
+working - notarized apps carry a secure timestamp - but new builds need a
+renewed certificate after that.
+
 ## Cloud sync setup
 
 Sync is off unless the build is configured. `firebaseConfigured` is false with

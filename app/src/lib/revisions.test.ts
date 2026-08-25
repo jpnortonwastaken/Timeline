@@ -11,7 +11,7 @@
  * produces it. Rebuilding a whole map marks every record as edited and the
  * test stops measuring anything real.
  */
-import { mergePlans, trackChanges, emptyRevisions, seedRevisions } from './revisions'
+import { mergePlans, resolvePlan, trackChanges, emptyRevisions, seedRevisions } from './revisions'
 import type { Snapshot, Item } from '../types'
 
 const it = (id: string, title: string): Item => ({
@@ -142,6 +142,45 @@ const check = (name: string, cond: boolean, extra?: unknown) => {
   const m = mergePlans(local, remote, '2026-02-01T00:00:00Z')
   check('settled plan needs no local update', !m.changedLocal)
   check('settled plan needs no remote write', !m.changedRemote)
+}
+
+// 10. Second Mac: a fresh install's sample plan must not contaminate the real
+//     one. Its 22 blocks carry ids no other device has seen, so a plain merge
+//     would treat every one of them as new work and sync them everywhere.
+{
+  const sample = snap([it('s1', 'Current role'), it('s2', 'Build Timeline')])
+  const real = snap([it('r1', 'My actual plan'), it('r2', 'Another real block')])
+  const local = { data: sample, revs: seedRevisions(sample, '2026-02-01T00:00:00Z') }
+  const remote = { data: real, revs: seedRevisions(real, '2026-01-01T00:00:00Z') }
+
+  const m = resolvePlan(local, remote, true)
+  const ids = Object.keys(m.data.items).sort()
+  check('adopts the real plan', ids.join() === 'r1,r2', ids)
+  check('no sample blocks leak in', !ids.some((i) => i.startsWith('s')), ids)
+  check('local is replaced', m.changedLocal)
+  check('nothing is pushed back', !m.changedRemote)
+}
+
+// 11. ...but a sample plan with an empty server still uploads: a brand-new
+//     account has to start from something, and that something is the sample.
+{
+  const sample = snap([it('s1', 'Current role')])
+  const local = { data: sample, revs: seedRevisions(sample, '2026-02-01T00:00:00Z') }
+  const remote = { data: snap([]), revs: emptyRevisions() }
+  const m = resolvePlan(local, remote, true)
+  check('first ever sign-in keeps its plan', Object.keys(m.data.items).length === 1)
+  check('first ever sign-in uploads it', m.changedRemote)
+}
+
+// 12. A plan that has been used is never discarded, however old it looks.
+{
+  const mine = snap([it('a', 'mine')])
+  const theirs = snap([it('b', 'theirs')])
+  const local = { data: mine, revs: seedRevisions(mine, '2026-01-01T00:00:00Z') }
+  const remote = { data: theirs, revs: seedRevisions(theirs, '2026-02-01T00:00:00Z') }
+  const m = resolvePlan(local, remote, false)
+  const ids = Object.keys(m.data.items).sort()
+  check('used plan merges rather than being replaced', ids.join() === 'a,b', ids)
 }
 
 console.log(`\n${pass} passed, ${fail} failed`)

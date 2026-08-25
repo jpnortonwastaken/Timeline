@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "vite-node src/lib/revisions.test.ts"
+    "test": "vite-node src/lib/revisions.test.ts",
+    "release": "bash scripts/release.sh"
   },
   "dependencies": {
     "@fabianlars/tauri-plugin-oauth": "^2.1.0",

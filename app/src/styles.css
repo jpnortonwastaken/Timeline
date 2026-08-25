@@ -1719,3 +1719,5 @@ kbd {
 .sign-in-chip:hover { color: var(--text); }
 /* Statusbar is 26px, the overview strip 64px above it. */
 .prompt-nudge.above-minimap { bottom: 104px; }
+/* Waiting reads as active, not as an alert. */
+.sign-in-chip.waiting { color: var(--text); background: var(--hover); }

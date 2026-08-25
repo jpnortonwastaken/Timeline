@@ -69,7 +69,7 @@ function Welcome({ onDone }: { onDone: () => void }) {
         <p className="prompt-lead">
           Plan projects and a whole life on one canvas.
         </p>
-        <button className="prompt-primary" disabled={busy} onClick={() => void signIn()}>
+        <button className="prompt-primary" onClick={() => void signIn()}>
           <GoogleMark />
           {busy ? 'Waiting for browser…' : 'Sign in with Google'}
         </button>
@@ -98,7 +98,7 @@ function Nudge({ onDone }: { onDone: () => void }) {
         <span>It only lives on this Mac right now.</span>
       </div>
       <div className="prompt-nudge-actions">
-        <button className="prompt-primary small" disabled={busy} onClick={() => void signIn()}>
+        <button className="prompt-primary small" onClick={() => void signIn()}>
           <GoogleMark />
           {busy ? 'Waiting…' : 'Sign in'}
         </button>

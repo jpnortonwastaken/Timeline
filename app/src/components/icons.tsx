@@ -160,3 +160,9 @@ export const IconCloudOff = () => (
     <path d="M2.2 2.2 13.8 13.8" />
   </Glyph>
 )
+
+export const IconClose = () => (
+  <Glyph>
+    <path d="M4.2 4.2 11.8 11.8M11.8 4.2 4.2 11.8" />
+  </Glyph>
+)

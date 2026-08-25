@@ -226,3 +226,25 @@ export function mergePlans(local: Side, remote: Side, now = new Date().toISOStri
 
   return { data, revs, changedLocal, changedRemote }
 }
+
+/** Nothing has ever been synced to this account yet. */
+export const hasRecords = (d: Snapshot) =>
+  Object.keys(d.items).length > 0 || Object.keys(d.lanes).length > 0
+
+/**
+ * What this device should end up with, given what the server holds.
+ *
+ * Normally a merge. The exception is a device whose plan is still the untouched
+ * sample: `seed()` mints fresh nanoid ids per install, so those 22 blocks are
+ * records the merge has genuinely never seen, and treating them as new work -
+ * which is the correct thing to do with unknown records - would scatter sample
+ * data through a real plan and then sync it to every other machine. Adopting
+ * the server's copy outright is the only reading that matches what the person
+ * actually meant by signing in on a new Mac.
+ */
+export function resolvePlan(local: Side, remote: Side, pristine: boolean): MergeResult {
+  if (pristine && hasRecords(remote.data)) {
+    return { data: remote.data, revs: remote.revs, changedLocal: true, changedRemote: false }
+  }
+  return mergePlans(local, remote)
+}

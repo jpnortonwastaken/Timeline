@@ -1,0 +1,152 @@
+#!/bin/bash
+#
+# Build, sign, notarize and staple a release of Timelime.
+#
+# Three separate things have to be true before macOS will run this app on
+# somebody else's Mac, and they fail in different ways:
+#
+#   signed      - or Gatekeeper has nothing to check
+#   notarized   - or Gatekeeper reports "malicious software" on first launch
+#   stapled     - or it only passes while the user happens to be online
+#
+# The order below is forced, and it is not the obvious one. Tauri's dmg bundler
+# *moves* the .app into the disk image and re-signs it on the way, so anything
+# stapled beforehand is destroyed and `bundle/macos` is left empty. The app has
+# to be notarized and stapled on its own first, and the disk image assembled
+# around the stapled copy afterwards - which means two trips to Apple, one for
+# each artifact, because a rebuilt image has a new hash and needs its own
+# ticket.
+#
+# The Apple password never appears here. `notarytool` reads it from a keychain
+# profile created once by hand, so it is not in this file, the environment, or
+# the shell history:
+#
+#   xcrun notarytool store-credentials "timelime" \
+#       --apple-id "<your apple id>" --team-id "9X945ZDXM2"
+#
+set -euo pipefail
+
+IDENTITY="Developer ID Application: Jonathon Norton (9X945ZDXM2)"
+PROFILE="timelime"
+VOLNAME="Timelime"
+# Universal, so this runs on Intel Macs too. Without it the build is arm64-only
+# and an Intel user gets a baffling failure rather than a working app.
+TARGET="universal-apple-darwin"
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUNDLE="$HERE/src-tauri/target/$TARGET/release/bundle"
+APP="$BUNDLE/macos/$VOLNAME.app"
+WORK="$HERE/src-tauri/target/release-staging"
+
+step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
+die() { printf '\n\033[31merror:\033[0m %s\n' "$1" >&2; exit 1; }
+# Output is captured before being searched, never piped into `grep -q`. With
+# `pipefail` set, grep exits at the first match, the writer takes SIGPIPE, and
+# the pipeline reports failure - so the check fails exactly when it succeeds.
+has() { case "$2" in *"$1"*) return 0 ;; *) return 1 ;; esac; }
+
+VERSION="$(node -p "require('$HERE/src-tauri/tauri.conf.json').version")"
+DMG="$BUNDLE/dmg/${VOLNAME}_${VERSION}_universal.dmg"
+
+step "Checking prerequisites"
+IDENTITIES="$(security find-identity -v -p codesigning 2>&1)"
+has "$IDENTITY" "$IDENTITIES" \
+  || die "No '$IDENTITY' in the keychain.
+  Xcode > Settings > Accounts > Manage Certificates > + > Developer ID Application"
+xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1 \
+  || die "No notarytool keychain profile called '$PROFILE'. Create it with:
+  xcrun notarytool store-credentials \"$PROFILE\" --apple-id \"<your apple id>\" --team-id \"9X945ZDXM2\""
+TARGETS="$(rustup target list --installed 2>&1)"
+for arch in aarch64-apple-darwin x86_64-apple-darwin; do
+  has "$arch" "$TARGETS" || die "Rust target $arch is missing. Install it with:
+  rustup target add $arch"
+done
+echo "  certificate, notary credentials and both architectures present"
+
+step "Running tests"
+cd "$HERE"
+npm test
+
+step "Building and signing (both architectures)"
+# Tauri signs when it sees this, and applies the hardened runtime with it -
+# notarization rejects anything without that. Only the .app is built here; the
+# disk image is assembled further down, from the stapled copy.
+export APPLE_SIGNING_IDENTITY="$IDENTITY"
+./node_modules/.bin/tauri build --target "$TARGET" --bundles app
+[ -d "$APP" ] || die "No .app was produced at $APP"
+
+step "Verifying the signature before submitting"
+codesign --verify --deep --strict "$APP" || die "The signature is not valid"
+SIGINFO="$(codesign -d --verbose=2 "$APP" 2>&1)"
+has "flags=0x10000(runtime)" "$SIGINFO" \
+  || die "Hardened runtime is missing - notarization would reject this"
+ARCHS="$(lipo -archs "$APP/Contents/MacOS/timeline" 2>&1)"
+has "x86_64" "$ARCHS" || die "Not a universal binary - got: $ARCHS"
+has "arm64" "$ARCHS" || die "Not a universal binary - got: $ARCHS"
+echo "  signed, hardened, universal ($ARCHS)"
+
+step "Notarizing the app (Apple usually answers in 1-5 minutes)"
+rm -rf "$WORK" && mkdir -p "$WORK"
+# `ditto` is the only supported way to zip a bundle for notarization - it keeps
+# the symlinks and extended attributes that a plain `zip` quietly flattens.
+ditto -c -k --keepParent "$APP" "$WORK/app.zip"
+xcrun notarytool submit "$WORK/app.zip" --keychain-profile "$PROFILE" --wait \
+  || die "Notarization failed. For the reasons:
+  xcrun notarytool log <submission-id> --keychain-profile \"$PROFILE\""
+xcrun stapler staple "$APP"
+
+step "Building the disk image around the stapled app"
+# Tauri writes `bundle_dmg.sh` and its applescript template only while running
+# its own dmg bundler, and only into whichever target directory that ran in -
+# so a universal build has neither. Borrow them from any previous build. The
+# script finds its template two levels up, at share/create-dmg/support, so the
+# pair has to keep that relationship.
+mkdir -p "$BUNDLE/dmg"
+DMGSCRIPT="$BUNDLE/dmg/bundle_dmg.sh"
+if [ ! -f "$DMGSCRIPT" ]; then
+  SRC="$(find "$HERE/src-tauri/target" -name bundle_dmg.sh -not -path "$BUNDLE/*" 2>/dev/null | head -1)"
+  [ -n "$SRC" ] || die "bundle_dmg.sh is nowhere under target/. Run
+  'npx tauri build --bundles dmg' once to have Tauri produce it, then retry."
+  cp "$SRC" "$DMGSCRIPT"
+  chmod +x "$DMGSCRIPT"
+  SUPPORT="$(dirname "$(dirname "$SRC")")/share/create-dmg"
+  [ -d "$SUPPORT" ] || die "create-dmg support files missing next to $SRC"
+  mkdir -p "$BUNDLE/share"
+  cp -R "$SUPPORT" "$BUNDLE/share/"
+  echo "  borrowed the dmg tooling from $(dirname "$SRC")"
+fi
+[ -f "$BUNDLE/share/create-dmg/support/template.applescript" ] \
+  || die "template.applescript is missing - the dmg script cannot lay out the window"
+rm -f "$DMG"
+mkdir -p "$WORK/stage"
+cp -R "$APP" "$WORK/stage/"
+( cd "$BUNDLE/dmg" && ./bundle_dmg.sh \
+    --volname "$VOLNAME" \
+    --icon "$VOLNAME.app" 180 170 \
+    --app-drop-link 480 170 \
+    --window-size 660 400 \
+    --hide-extension "$VOLNAME.app" \
+    "$DMG" "$WORK/stage" ) >/dev/null
+[ -f "$DMG" ] || die "No .dmg was produced"
+codesign --force --sign "$IDENTITY" --timestamp "$DMG"
+
+step "Notarizing the disk image"
+xcrun notarytool submit "$DMG" --keychain-profile "$PROFILE" --wait \
+  || die "Notarization of the disk image failed"
+xcrun stapler staple "$DMG"
+
+step "Final check - exactly what Gatekeeper will do to a download"
+# Assessed through the quarantine flag Safari stamps on downloads, because an
+# un-quarantined file takes a more forgiving path and proves less.
+CHECK="$WORK/downloaded.dmg"
+cp "$DMG" "$CHECK"
+xattr -w com.apple.quarantine "0081;00000000;Safari;" "$CHECK"
+spctl --assess --type open --context context:primary-signature --verbose=2 "$CHECK" 2>&1 | sed 's/^/  /'
+MP="$(hdiutil attach "$CHECK" -nobrowse -readonly | grep -o '/Volumes/.*' | head -1)"
+spctl --assess --type execute --verbose=2 "$MP/$VOLNAME.app" 2>&1 | sed 's/^/  /'
+xcrun stapler validate "$MP/$VOLNAME.app" 2>&1 | tail -1 | sed 's/^/  /'
+lipo -archs "$MP/$VOLNAME.app/Contents/MacOS/timeline" | sed 's/^/  architectures: /'
+hdiutil detach "$MP" -quiet
+rm -rf "$WORK"
+
+printf '\n\033[32mReady to distribute:\033[0m %s\n\n' "$DMG"

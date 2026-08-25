@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import { POP_OUT_MS, presenceClass, usePresence } from '../lib/presence'
 import { ALL_COLUMNS, useStore } from '../store'
-import { IconCloudOff, IconExport, IconImport, IconSignIn, IconSignOut, IconSync } from './icons'
+import { IconClose, IconCloudOff, IconExport, IconImport, IconSignIn, IconSignOut, IconSync } from './icons'
 import { MAX_PPD, MIN_PPD, todayDay, ZOOM_PRESETS } from '../lib/time'
 import { cmd } from '../lib/viewport'
 import type { Density, ThemeMode } from '../types'
@@ -41,13 +41,16 @@ function RadioItem({ label, on, onClick }: { label: string; on: boolean; onClick
 function SignInChip() {
   const { phase, busy } = useAccount()
   if (!firebaseConfigured || phase !== 'out') return null
+  /* Never disabled while waiting. Closing the browser tab by accident is the
+     commonest reason to reach for this again, and a dead button leaves nothing
+     to do but wait out the timeout. */
+  const label = busy ? 'Reopen your browser to finish signing in' : 'Sign in to sync your plan across Macs'
   return (
     <button
-      className="btn icon sign-in-chip"
+      className={'btn icon sign-in-chip' + (busy ? ' waiting' : '')}
       onClick={() => void signIn()}
-      disabled={busy}
-      title="Sign in to sync your plan across Macs"
-      aria-label="Sign in to sync your plan across Macs"
+      title={label}
+      aria-label={label}
     >
       <IconCloudOff />
     </button>
@@ -137,7 +140,7 @@ function AccountSection({ close }: { close: (fn: () => void) => () => void }) {
           <button
             className="menu-item"
             disabled={phase === 'unknown'}
-            onClick={() => void (busy ? cancelSignIn() : signIn())}
+            onClick={() => void signIn()}
           >
             <IconSignIn />
             {/* Measured, not guessed: the label has 160px, and "Waiting for
@@ -147,9 +150,16 @@ function AccountSection({ close }: { close: (fn: () => void) => () => void }) {
             </span>
           </button>
           {busy ? (
-            /* A closed tab sends nothing back, so the wait cannot end itself.
-               This is the way out, rather than sitting until the timeout. */
-            <p className="menu-note">Press again to cancel.</p>
+            <>
+              {/* A closed tab sends nothing back, so the wait cannot end itself.
+                  Pressing above reopens the browser; this abandons it. Two
+                  separate rows, because one press cannot mean both. */}
+              <p className="menu-note">Press again to reopen your browser.</p>
+              <button className="menu-item" onClick={() => void cancelSignIn()}>
+                <IconClose />
+                <span className="menu-label">Cancel</span>
+              </button>
+            </>
           ) : (
             <p className="menu-note">
               Sync your plan across Macs. It stays on this one either way.
