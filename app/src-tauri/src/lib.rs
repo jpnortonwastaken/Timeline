@@ -99,6 +99,11 @@ pub fn run() {
         // then fails with "plugin http not found" rather than anything about
         // permissions.
         .plugin(tauri_plugin_http::init())
+        // `process` is what lets the app restart itself once an update is in
+        // place - an update the user has to quit and reopen by hand is one most
+        // people never finish applying.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(

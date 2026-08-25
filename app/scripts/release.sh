@@ -37,6 +37,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUNDLE="$HERE/src-tauri/target/$TARGET/release/bundle"
 APP="$BUNDLE/macos/$VOLNAME.app"
 WORK="$HERE/src-tauri/target/release-staging"
+UPDATER_KEY="$HOME/.tauri/timelime.key"
+KEYCHAIN_ITEM="timelime-updater-key"
+REPO="jpnortonwastaken/Timeline"
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 die() { printf '\n\033[31merror:\033[0m %s\n' "$1" >&2; exit 1; }
@@ -61,7 +64,11 @@ for arch in aarch64-apple-darwin x86_64-apple-darwin; do
   has "$arch" "$TARGETS" || die "Rust target $arch is missing. Install it with:
   rustup target add $arch"
 done
-echo "  certificate, notary credentials and both architectures present"
+[ -f "$UPDATER_KEY" ] || die "No updater signing key at $UPDATER_KEY.
+  Generate one with: npx tauri signer generate -w \"$UPDATER_KEY\""
+security find-generic-password -a timelime -s "$KEYCHAIN_ITEM" >/dev/null 2>&1 \
+  || die "No keychain item '$KEYCHAIN_ITEM' holding the updater key password."
+echo "  certificate, notary credentials, updater key and both architectures present"
 
 step "Running tests"
 cd "$HERE"
@@ -94,6 +101,38 @@ xcrun notarytool submit "$WORK/app.zip" --keychain-profile "$PROFILE" --wait \
   || die "Notarization failed. For the reasons:
   xcrun notarytool log <submission-id> --keychain-profile \"$PROFILE\""
 xcrun stapler staple "$APP"
+
+step "Packaging the update artifact"
+# Built from the *stapled* app, so an update lands already notarized. An update
+# that has to phone Apple on first launch is one that fails on a bad network,
+# in exactly the moment the app has just replaced itself.
+UPDATE_TGZ="$BUNDLE/dmg/${VOLNAME}.app.tar.gz"
+rm -f "$UPDATE_TGZ" "$UPDATE_TGZ.sig"
+mkdir -p "$BUNDLE/dmg"
+# COPYFILE_DISABLE stops macOS tar writing extended attributes as separate
+# AppleDouble entries. Without it the archive gains a `._Timelime.app` sibling,
+# and the updater tries to unpack that as the app bundle and fails - a download
+# that completes and then quietly installs nothing.
+( cd "$BUNDLE/macos" && COPYFILE_DISABLE=1 tar czf "$UPDATE_TGZ" "$VOLNAME.app" )
+# Checked with python, not tar: macOS bsdtar transparently hides the
+# AppleDouble entries it writes, so listing with the same tool that created the
+# archive always reports a clean one. Tauri's Rust extractor sees them.
+python3 - "$UPDATE_TGZ" <<'CHECK' || die "The archive contains AppleDouble entries - the updater cannot unpack it"
+import sys, tarfile
+bad = [m.name for m in tarfile.open(sys.argv[1])
+       if m.name.split('/')[-1].startswith('._')]
+if bad:
+    print('  AppleDouble entries found:', bad[:3], file=sys.stderr)
+sys.exit(1 if bad else 0)
+CHECK
+# The password is read straight out of the keychain into the environment of one
+# command and nothing else. It is never echoed, never written, never in argv -
+# `-p` would put it in the process list for any other user to read.
+TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(security find-generic-password -a timelime -s "$KEYCHAIN_ITEM" -w)" \
+TAURI_SIGNING_PRIVATE_KEY_PATH="$UPDATER_KEY" \
+  ./node_modules/.bin/tauri signer sign "$UPDATE_TGZ" >/dev/null
+[ -f "$UPDATE_TGZ.sig" ] || die "The update artifact was not signed"
+echo "  $(basename "$UPDATE_TGZ") signed"
 
 step "Building the disk image around the stapled app"
 # Tauri writes `bundle_dmg.sh` and its applescript template only while running
@@ -149,4 +188,29 @@ lipo -archs "$MP/$VOLNAME.app/Contents/MacOS/timeline" | sed 's/^/  architecture
 hdiutil detach "$MP" -quiet
 rm -rf "$WORK"
 
-printf '\n\033[32mReady to distribute:\033[0m %s\n\n' "$DMG"
+step "Writing latest.json"
+# One universal artifact serves both architectures, so both keys point at it.
+# The url has to be the final download location, not a local path - this file is
+# what every installed copy reads to decide whether it is out of date.
+MANIFEST="$BUNDLE/dmg/latest.json"
+SIGNATURE="$(cat "$UPDATE_TGZ.sig")"
+URL="https://github.com/$REPO/releases/download/v$VERSION/$(basename "$UPDATE_TGZ")"
+NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+cat > "$MANIFEST" <<JSON
+{
+  "version": "$VERSION",
+  "pub_date": "$NOW",
+  "platforms": {
+    "darwin-aarch64": { "signature": "$SIGNATURE", "url": "$URL" },
+    "darwin-x86_64":  { "signature": "$SIGNATURE", "url": "$URL" }
+  }
+}
+JSON
+node -e "JSON.parse(require('fs').readFileSync('$MANIFEST','utf8'))" \
+  || die "latest.json is not valid JSON"
+echo "  $MANIFEST"
+
+printf '\n\033[32mBuilt and verified.\033[0m\n'
+printf '  %s\n  %s\n  %s\n' "$DMG" "$UPDATE_TGZ" "$MANIFEST"
+printf '\nPublish with:\n  gh release create v%s \\\n    "%s" \\\n    "%s" "%s" \\\n    --repo %s --title "v%s" --notes "..."\n\n' \
+  "$VERSION" "$DMG" "$UPDATE_TGZ" "$MANIFEST" "$REPO" "$VERSION"

@@ -1667,7 +1667,9 @@ kbd {
   box-shadow: var(--shadow-menu);
   text-align: center;
 }
-.prompt-mark { width: 46px; height: 46px; border-radius: 11px; margin: 0 auto 14px; display: block; }
+/* No border-radius: the mark carries its own rounded corners and alpha now,
+   and clipping it again only risks a second, slightly different curve. */
+.prompt-mark { width: 46px; height: 46px; margin: 0 auto 14px; display: block; }
 .prompt-mark.dark, :root[data-theme='dark'] .prompt-mark.light { display: none; }
 :root[data-theme='dark'] .prompt-mark.dark { display: block; }
 .prompt-card h1 { margin: 0 0 5px; font-size: 19px; font-weight: 600; color: var(--text); }
@@ -1708,7 +1710,7 @@ kbd {
   background: var(--bg); border-radius: var(--r-lg);
   box-shadow: var(--shadow-menu);
 }
-.prompt-nudge .prompt-mark { width: 30px; height: 30px; margin: 1px 0 0; border-radius: 8px; }
+.prompt-nudge .prompt-mark { width: 30px; height: 30px; margin: 1px 0 0; }
 .prompt-nudge-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .prompt-nudge-text strong { font-size: 13.5px; font-weight: 600; color: var(--text); }
 .prompt-nudge-text span { font-size: 12px; line-height: 1.4; color: var(--text-3); }
@@ -1721,3 +1723,48 @@ kbd {
 .prompt-nudge.above-minimap { bottom: 104px; }
 /* Waiting reads as active, not as an alert. */
 .sign-in-chip.waiting { color: var(--text); background: var(--hover); }
+
+/* update prompt ----------------------------------------------------------- */
+.update-card {
+  position: fixed; right: 18px; bottom: 18px; z-index: 80;
+  display: flex; align-items: flex-start; gap: 12px;
+  width: 340px; padding: 14px;
+  background: var(--bg); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-menu);
+}
+.update-card.above-minimap { bottom: 104px; }
+.update-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.update-text strong { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.update-text span { font-size: 12px; line-height: 1.4; color: var(--text-3); }
+/* Error text is whatever the updater handed us, and that includes long
+   unbroken temp paths. Without a break rule they refuse to wrap, overflow the
+   card and run straight across the buttons. Clamped as well, because three
+   lines of a filesystem path is already more than anyone needs to see. */
+.update-text .update-detail {
+  overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.update-actions { flex: 0 0 auto; }
+.update-actions { display: flex; flex-direction: column; gap: 5px; }
+.update-primary {
+  padding: 6px 12px; border: 0; border-radius: var(--r-md); cursor: pointer;
+  font-size: 13px; font-weight: 500; color: #fff; background: var(--accent);
+  transition: filter 0.12s ease;
+}
+.update-primary:hover { filter: brightness(1.08); }
+.update-secondary {
+  padding: 5px 10px; border: 0; background: transparent; cursor: pointer;
+  font-size: 12.5px; color: var(--text-3); border-radius: var(--r-sm);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.update-secondary:hover { background: var(--hover); color: var(--text-2); }
+/* Scaled rather than resized, so the fill is composited and never relayouts. */
+.update-bar {
+  display: block; height: 3px; margin-top: 5px; border-radius: 3px;
+  background: var(--hover); overflow: hidden;
+}
+.update-bar > span {
+  display: block; height: 100%; width: 100%; transform-origin: left center;
+  background: var(--accent); transition: transform 0.2s ease;
+}

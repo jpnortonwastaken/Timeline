@@ -7,6 +7,9 @@ import { cmd } from '../lib/viewport'
 import type { Density, ThemeMode } from '../types'
 import { downloadJSON, pickAndImport } from '../lib/io'
 import { firebaseConfigured } from '../lib/firebase'
+import { isTauri } from '../lib/tauri'
+import { checkForUpdate, useUpdate } from '../lib/updates'
+import { useAppVersion } from '../lib/version'
 import { cancelSignIn, signIn, signOutAccount, useAccount, useSyncStatus } from '../lib/account'
 import type { SyncState } from '../lib/sync'
 
@@ -27,6 +30,39 @@ function RadioItem({ label, on, onClick }: { label: string; on: boolean; onClick
       <span className={'menu-radio' + (on ? ' on' : '')} />
       <span className="menu-label">{label}</span>
     </button>
+  )
+}
+
+/**
+ * Checking on purpose, for someone who wants to know now.
+ *
+ * The automatic check is silent unless it finds something, which leaves no way
+ * to tell "up to date" from "never looked". This row answers that.
+ */
+function UpdateCheckItem() {
+  const { phase, info } = useUpdate()
+  const version = useAppVersion()
+  if (!isTauri) return null
+  const label =
+    phase === 'checking'
+      ? 'Checking…'
+      : phase === 'none'
+        ? 'Up to date'
+        : phase === 'available' || phase === 'ready'
+          ? `Update to ${info?.version}`
+          : 'Check for updates'
+  return (
+    <>
+      <button
+        className="menu-item"
+        disabled={phase === 'checking' || phase === 'downloading'}
+        onClick={() => void checkForUpdate(true)}
+      >
+        <IconSync />
+        <span className="menu-label">{label}</span>
+      </button>
+      <p className="menu-note">Version {version}</p>
+    </>
   )
 }
 
@@ -404,6 +440,9 @@ function ViewMenu() {
             <IconImport />
             <span className="menu-label">Import JSON…</span>
           </button>
+
+          <div className="menu-sep" />
+          <UpdateCheckItem />
         </div>
       )}
     </div>

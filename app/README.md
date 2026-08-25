@@ -531,6 +531,46 @@ Note the signing certificate expires 1 Feb 2027. Anything already shipped keeps
 working - notarized apps carry a secure timestamp - but new builds need a
 renewed certificate after that.
 
+## Updates
+
+`npm run release` also produces `Timelime.app.tar.gz`, its `.sig`, and a
+`latest.json`; publishing all three to a GitHub release is what installed
+copies read. The app checks once, eight seconds after launch, and does nothing
+else on its own - the download and the restart are both things the user presses.
+
+Three things bit here and none of them announced themselves:
+
+**macOS `tar` writes extended attributes as separate AppleDouble entries.**
+The archive gains a `._Timelime.app` sibling, Tauri's extractor tries to unpack
+*that* as the app bundle, and the update downloads perfectly and installs
+nothing. `COPYFILE_DISABLE=1` stops it.
+
+**`bsdtar` hides the AppleDouble entries it created.** Listing the archive with
+the same tool that wrote it reports a clean one, so the obvious guard -
+`tar tzf | grep '^\._'` - passes on a broken archive. The check uses python,
+which sees them.
+
+**The version has to come from the running app.** A constant compiled into the
+frontend comes from whichever config the *web* build read, and the one moment
+it is guaranteed to be wrong is straight after an update, when the app sits
+there reporting the version it used to be. `getVersion()` reads Info.plist.
+
+The private key lives at `~/.tauri/timelime.key`, its password in the login
+keychain as `timelime-updater-key`. Both need backing up: losing either means a
+new public key, and a new public key means every installed copy stops accepting
+updates and has to be replaced by hand. Only the public half is in this repo.
+
+## App icons
+
+Generated from `icon-source-rounded.png`, not `icon-source.png`. macOS does not
+round app icons - whatever alpha the source has is what appears in the Dock,
+and the original was a hard 1254px square with no transparency at all.
+
+The rounded source follows Apple's grid: an 824x824 body centred in a 1024
+canvas, corner radius ~22.45% of the body, with the mask supersampled 4x so the
+curve has no stair-stepping. The toolbar marks use the same corner ratio, so
+the Dock icon and the mark in the app read as the same shape.
+
 ## Cloud sync setup
 
 Sync is off unless the build is configured. `firebaseConfigured` is false with

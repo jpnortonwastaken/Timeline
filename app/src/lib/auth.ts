@@ -35,11 +35,9 @@ const DONE_PAGE = `<!doctype html><html><head><meta charset="utf-8">
 body{font:15px -apple-system,system-ui,sans-serif;color:#37352f;background:#fff;
 display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
 div{text-align:center}
-img{width:48px;height:48px;display:block;margin:0 auto 14px;border-radius:11px}
+img{width:48px;height:48px;display:block;margin:0 auto 14px}
 h1{font-size:17px;font-weight:600;margin:0 0 6px}
 p{margin:0;color:#787774}
-/* The marks carry their own background - no alpha - so each needs the page
-   behind it to match, same as the one in the toolbar. */
 .dark{display:none}
 @media(prefers-color-scheme:dark){
 body{background:#191919;color:#e9e9e7}p{color:#9b9a97}

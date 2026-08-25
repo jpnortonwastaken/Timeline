@@ -33,6 +33,11 @@
     "http:allow-fetch-send",
     "http:allow-fetch-read-body",
     "http:allow-fetch-cancel",
+    "updater:default",
+    "updater:allow-check",
+    "updater:allow-download-and-install",
+    "process:default",
+    "process:allow-restart",
     {
       "identifier": "fs:scope",
       "allow": [

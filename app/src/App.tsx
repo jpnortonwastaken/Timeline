@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Toolbar } from './components/Toolbar'
 import { SignInPrompt } from './components/SignInPrompt'
+import { UpdateBanner } from './components/UpdateBanner'
 import { Timeline } from './components/Timeline'
 import { DetailPanel } from './components/DetailPanel'
 import { Minimap } from './components/Minimap'
 import { hadStoredState, useStore } from './store'
 import { isTauri, onMenuCommand, readBackup } from './lib/tauri'
 import { initAccount } from './lib/account'
+import { startUpdateChecks } from './lib/updates'
 import { downloadJSON, pickAndImport } from './lib/io'
 import { flatten } from './lib/tree'
 import { addUnits, dayToIso, isoToDay, tierFor, todayDay, ZOOM_PRESETS } from './lib/time'
@@ -75,6 +77,7 @@ export default function App() {
      a build with no Firebase project. */
   useEffect(() => {
     initAccount()
+    startUpdateChecks()
   }, [])
 
   /** One place both the native menu and the keyboard route through. */
@@ -326,6 +329,7 @@ export default function App() {
         <span className="hint">right-click for more</span>
       </footer>
       <SignInPrompt />
+      <UpdateBanner />
     </div>
   )
 }
