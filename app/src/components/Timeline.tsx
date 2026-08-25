@@ -391,6 +391,7 @@ export function Timeline() {
   const removeDep = useStore((s) => s.removeDep)
   const cascade = useStore((s) => s.cascade)
   const reorderItem = useStore((s) => s.reorderItem)
+  const duplicateItems = useStore((s) => s.duplicateItems)
   const reorderLane = useStore((s) => s.reorderLane)
   const createLane = useStore((s) => s.createLane)
   const setEditingLane = useStore((s) => s.setEditingLane)
@@ -1330,7 +1331,11 @@ export function Timeline() {
       marker.style.top = `${rowIndex * rowH}px`
       marker.style.height = `${rowH}px`
       layerRef.current?.appendChild(marker)
-      showTip(clientX, clientY, `Nest under “${items[childTarget]?.title || 'Untitled'}”`)
+      showTip(
+        clientX,
+        clientY,
+        `${isDuplicating(d) ? 'Copy into' : 'Nest under'} “${items[childTarget]?.title || 'Untitled'}”`,
+      )
       return
     }
 
@@ -1382,10 +1387,11 @@ export function Timeline() {
     layerRef.current?.appendChild(marker)
 
     const name = items[target.id]?.title || 'Untitled'
+    const where = target.position === 'before' ? 'Above' : 'Below'
     showTip(
       clientX,
       clientY,
-      target.position === 'before' ? `Above “${name}”` : `Below “${name}”`,
+      isDuplicating(d) ? `Copy ${where.toLowerCase()} “${name}”` : `${where} “${name}”`,
     )
   }
 
@@ -1454,6 +1460,17 @@ export function Timeline() {
   const isDateDrag = (d: NonNullable<typeof dragRef.current>) =>
     d.mode === 'start' || d.mode === 'end' || d.mode === 'create' ||
     (d.mode === 'move' && d.axis === 'x')
+
+  /**
+   * Whether this gesture drops a copy instead of moving the original.
+   *
+   * Option, and only on a vertical drag. Held on a horizontal one it already
+   * means "ignore the zoom's snapping and take the exact day" - a different and
+   * equally useful thing. The two never meet, because a drag locks to one axis
+   * the moment it starts and keeps it until the pointer is released.
+   */
+  const isDuplicating = (d: NonNullable<typeof dragRef.current>) =>
+    !!d.lastAlt && d.mode === 'move' && d.axis === 'y'
 
   const applyHorizontal = (
     d: NonNullable<typeof dragRef.current>,
@@ -1908,7 +1925,16 @@ export function Timeline() {
       )
     }
     if (d.mode === 'move' && d.dropTarget) {
-      reorderItem(d.ids[0], d.dropTarget.id, d.dropTarget.position, true)
+      if (isDuplicating(d)) {
+        /* `duplicateItems` leaves the new roots as the selection, which is how
+           the copy is found without changing its signature. It brings the whole
+           subtree along, and any links wholly inside it. */
+        duplicateItems([d.ids[0]])
+        const copy = useStore.getState().selection[0]
+        if (copy) reorderItem(copy, d.dropTarget.id, d.dropTarget.position, true)
+      } else {
+        reorderItem(d.ids[0], d.dropTarget.id, d.dropTarget.position, true)
+      }
     }
     cascade()
   }

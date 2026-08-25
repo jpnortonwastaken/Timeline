@@ -322,6 +322,7 @@ export default function App() {
         <span className="hint"><kbd>⌘</kbd>+scroll to zoom</span>
         <span className="hint"><kbd>⌥</kbd>drag for free dates</span>
         <span className="hint"><kbd>⇧</kbd>drag to move children</span>
+        <span className="hint"><kbd>⌥</kbd>drag up/down to copy</span>
         <span className="hint">drag the ○ to link</span>
         <span className="hint"><kbd>T</kbd> today</span>
         <span className="hint"><kbd>E</kbd> expand all</span>
