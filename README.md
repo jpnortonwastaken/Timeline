@@ -3,7 +3,7 @@
 Plan projects and a whole life on one canvas. A Mac app, built because Notion's
 timeline view is close but not quite right.
 
-**[Download the latest release](https://github.com/jpnortonwastaken/Timeline/releases/latest)** —
+**[Download the latest release](https://github.com/jpnortonwastaken/Timelime/releases/latest)** —
 universal for Apple Silicon and Intel, signed and notarized, so it opens without
 a warning. macOS 11 or later.
 
@@ -30,9 +30,9 @@ No analytics, no tracking, no advertising. You can delete your account and
 everything stored against it from inside the app, and export the whole plan as
 JSON at any time.
 
-[Privacy policy](https://jpnortonwastaken.github.io/Timeline/privacy.html) ·
-[Terms](https://jpnortonwastaken.github.io/Timeline/terms.html) ·
-[Website](https://jpnortonwastaken.github.io/Timeline/)
+[Privacy policy](https://jpnortonwastaken.github.io/Timelime/privacy.html) ·
+[Terms](https://jpnortonwastaken.github.io/Timelime/terms.html) ·
+[Website](https://jpnortonwastaken.github.io/Timelime/)
 
 ## Running it
 

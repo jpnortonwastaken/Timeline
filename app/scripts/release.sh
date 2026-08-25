@@ -39,7 +39,7 @@ APP="$BUNDLE/macos/$VOLNAME.app"
 WORK="$HERE/src-tauri/target/release-staging"
 UPDATER_KEY="$HOME/.tauri/timelime.key"
 KEYCHAIN_ITEM="timelime-updater-key"
-REPO="jpnortonwastaken/Timeline"
+REPO="jpnortonwastaken/Timelime"
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 die() { printf '\n\033[31merror:\033[0m %s\n' "$1" >&2; exit 1; }
