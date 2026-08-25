@@ -1895,7 +1895,12 @@ export function Timeline() {
             id,
             patch: {
               start: { date: dayToIso(d.finalStart), precision: it.start?.precision ?? 'day' },
-              end: { date: dayToIso(d.finalEnd), precision: it.end?.precision ?? 'day' },
+              /*
+               * A milestone is a block with no end date, so writing one turns it
+               * into a span. Moving something must never change what kind of
+               * thing it is - the multi-item path above already knew that.
+               */
+              end: it.end ? { date: dayToIso(d.finalEnd), precision: it.end.precision } : null,
             },
           },
         ],

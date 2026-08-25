@@ -445,10 +445,16 @@ function RowImpl({
               </button>
             )}
             <span className="bar-label">{labelText}</span>
+            {/* With the label outside, the out port rides along after the text
+                instead of sitting in the gap before it. In that gap it was
+                between the bar and the twisty, so reaching for the twisty
+                crossed it - and the label stepped aside, taking the twisty out
+                from under the pointer just as it was pressed. */}
+            {labelOutside && <span className="link-port link-port-end" data-port="out" />}
           </span>
           {!span.derived && <span className="handle handle-end" data-handle="end" />}
           <span className="link-port link-port-start" data-port="in" />
-          <span className="link-port link-port-end" data-port="out" />
+          {!labelOutside && <span className="link-port link-port-end" data-port="out" />}
         </div>
       )}
     </div>

@@ -1073,9 +1073,18 @@ body[data-drag] .new-outline { opacity: 0; }
  * the dot with it. Hovering the block itself changes nothing, so a label you
  * are only passing over stays put.
  */
-.bar.label-outside:has(.link-port-end:hover) .bar-inner.outside {
-  left: calc(100% + 28px);
+/*
+ * Inside an outside label the port is an ordinary flex item, after the text.
+ * Nothing overlaps any more, so the label no longer has to step aside for it -
+ * and stepping aside was what pulled the twisty out from under the pointer.
+ */
+.bar-inner.outside .link-port-end {
+  position: relative; right: auto; top: auto; margin: 0 0 0 3px;
+  width: 22px; height: 22px; flex: 0 0 auto;
 }
+/* Back to centred: the pinned variant offsets its dot to sit 13px off the bar,
+   which means nothing once the port is in the flow. */
+.bar-inner.outside .link-port-end::before { left: 0; right: 0; }
 .link-port:hover::before, .linking .link-port::before { opacity: 1; }
 .link-port:hover::before { transform: scale(1.2); }
 
@@ -1119,9 +1128,14 @@ g[data-dep-id]:has(.dep-x:hover) .dep-head { fill: var(--c-red); }
 .bar.drag-copy,
 .milestone.drag-copy {
   z-index: 8; opacity: 0.6; pointer-events: none;
-  box-shadow: rgba(15, 15, 15, 0.22) 0 5px 14px;
   transition: none;
 }
+.bar.drag-copy { box-shadow: rgba(15, 15, 15, 0.22) 0 5px 14px; }
+/* A milestone's marker is the rotated `::before`; the element itself is a
+   square box around it. Shadowing the box drew a square in mid-air around the
+   diamond, so the shadow goes on the shape that is actually visible. */
+.milestone.drag-copy { box-shadow: none; }
+.milestone.drag-copy::before { box-shadow: rgba(15, 15, 15, 0.22) 0 5px 14px; }
 
 .bar.ghost {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
@@ -1152,6 +1166,9 @@ g[data-dep-id]:has(.dep-x:hover) .dep-head { fill: var(--c-red); }
   background: var(--t);
   border-color: color-mix(in srgb, var(--c) 40%, transparent);
 }
+/* Same as `.bar.tinted .bar-label`: an explicitly chosen colour reaches the
+   title too, or the marker and its label look unrelated. */
+.milestone.tinted .milestone-label { color: var(--c); }
 .milestone.soft::before { border-style: dashed; }
 .milestone.is-done { opacity: 0.42; }
 .milestone.is-dropped { opacity: 0.3; }
