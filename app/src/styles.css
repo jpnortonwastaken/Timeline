@@ -1083,7 +1083,29 @@ body[data-drag] .new-outline { opacity: 0; }
 .dep-path.hot { stroke: var(--accent); stroke-width: 2; }
 .dep-head { fill: var(--text-3); }
 .dep-head.hot { fill: var(--accent); }
-.dep-hit { fill: none; stroke: transparent; stroke-width: 10; pointer-events: stroke; cursor: pointer; }
+/* A roomy invisible target so the thin line is easy to hover - but it no
+   longer deletes anything, so it takes the ordinary cursor. */
+.dep-hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: stroke; }
+
+/*
+ * Removing a dependency takes a deliberate press on a button, not a click on
+ * the line. Connectors run right across the canvas between whichever blocks
+ * they join, so a click-to-delete line is something you hit by accident - and
+ * the arrow just disappeared, with nothing to say what had happened.
+ */
+.dep-x { opacity: 0; pointer-events: none; cursor: pointer; transition: opacity 0.12s ease; }
+.dep-x-bg { fill: var(--bg); stroke: var(--text-3); stroke-width: 1.2; }
+.dep-x-mark { stroke: var(--text-2); stroke-width: 1.6; stroke-linecap: round; fill: none; }
+/* Hovering anywhere on the connector reveals it; it stays while the pointer
+   travels to it, because the button is inside the same group. */
+g[data-dep-id]:hover .dep-x { opacity: 1; pointer-events: auto; }
+.dep-x:hover .dep-x-bg { fill: var(--c-red); stroke: var(--c-red); }
+.dep-x:hover .dep-x-mark { stroke: #fff; }
+/* The line it would remove, called out while the button is under the pointer. */
+g[data-dep-id]:has(.dep-x:hover) .dep-path,
+g[data-dep-id]:has(.dep-x:hover) .dep-head { stroke: var(--c-red); }
+g[data-dep-id]:has(.dep-x:hover) .dep-head { fill: var(--c-red); }
+@media (prefers-reduced-motion: reduce) { .dep-x { transition: none; } }
 
 /* Follows the pointer on a vertical drag, while the real bar stays put. */
 .bar.drag-copy,

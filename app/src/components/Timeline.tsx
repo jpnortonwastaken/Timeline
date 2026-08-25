@@ -256,11 +256,11 @@ interface DepGeom {
   override?: SpanOverride
 }
 
-function buildDepPaths(g: DepGeom): { id: string; d: string; head: string }[] {
+function buildDepPaths(g: DepGeom): { id: string; d: string; head: string; cx: number; cy: number }[] {
   const { ppd, sidebarWidth, rowH, firstRow, lastRow } = g
   const xLo = g.scrollLeft - sidebarWidth - OVERSCAN_PX
   const xHi = g.scrollLeft + g.viewW - sidebarWidth + OVERSCAN_PX
-  const out: { id: string; d: string; head: string }[] = []
+  const out: { id: string; d: string; head: string; cx: number; cy: number }[] = []
   const spanOf = (id: ItemId, base: Span) => g.override?.get(id) ?? base
 
   for (const dep of Object.values(g.deps)) {
@@ -295,30 +295,40 @@ function buildDepPaths(g: DepGeom): { id: string; d: string; head: string }[] {
 
     // Standard Gantt elbow; route around when the successor starts too early.
     const tip = x2 - DEP_HEAD
-    const pts: Pt[] =
-      tip - x1 > DEP_STUB + 6
-        ? [
-            [x1, y1],
-            [x1 + DEP_STUB, y1],
-            [x1 + DEP_STUB, y2],
-            [tip, y2],
-          ]
-        : (() => {
-            const midY = y1 + (y2 > y1 ? rowH / 2 : -rowH / 2)
-            return [
-              [x1, y1],
-              [x1 + DEP_STUB, y1],
-              [x1 + DEP_STUB, midY],
-              [x2 - DEP_BACK, midY],
-              [x2 - DEP_BACK, y2],
-              [tip, y2],
-            ] as Pt[]
-          })()
+    const direct = tip - x1 > DEP_STUB + 6
+    const midY = y1 + (y2 > y1 ? rowH / 2 : -rowH / 2)
+    const pts: Pt[] = direct
+      ? [
+          [x1, y1],
+          [x1 + DEP_STUB, y1],
+          [x1 + DEP_STUB, y2],
+          [tip, y2],
+        ]
+      : [
+          [x1, y1],
+          [x1 + DEP_STUB, y1],
+          [x1 + DEP_STUB, midY],
+          [x2 - DEP_BACK, midY],
+          [x2 - DEP_BACK, y2],
+          [tip, y2],
+        ]
+
+    /*
+     * Where the remove button sits: the middle of the connector's longest
+     * straight run. On a plain elbow that is the vertical drop between the two
+     * rows; on a routed one it is the long horizontal doubling back. A corner
+     * would put the button on a curve, and either end would bury it under a bar
+     * or an arrowhead.
+     */
+    const cx = direct ? x1 + DEP_STUB : (x1 + DEP_STUB + x2 - DEP_BACK) / 2
+    const cy = direct ? (y1 + y2) / 2 : midY
 
     out.push({
       id: dep.id,
       d: roundedPolyline(pts, DEP_RADIUS),
       head: `M${tip},${y2 - 4.5} L${x2 - 0.5},${y2} L${tip},${y2 + 4.5} Z`,
+      cx,
+      cy,
     })
   }
   return out
@@ -804,6 +814,7 @@ export function Timeline() {
       g.querySelector('.dep-path')?.setAttribute('d', nx.d)
       g.querySelector('.dep-hit')?.setAttribute('d', nx.d)
       g.querySelector('.dep-head')?.setAttribute('d', nx.head)
+      g.querySelector('.dep-x')?.setAttribute('transform', `translate(${nx.cx},${nx.cy})`)
     })
   }
 
@@ -960,10 +971,16 @@ export function Timeline() {
     if (target.closest('.title-input') || target.closest('.disclosure')) return
     if (target.closest('.jump')) return
 
-    // Removing a dependency: click its line.
-    const depHit = target.closest('[data-dep-id]') as HTMLElement | null
-    if (depHit) {
-      removeDep(depHit.dataset.depId!)
+    /*
+     * Only the button removes a dependency, never the line. A connector crosses
+     * the canvas wherever its two blocks happen to sit, so catching one by
+     * accident is easy - and the arrow simply vanished, with nothing to suggest
+     * what had happened or how to get it back.
+     */
+    const depX = target.closest('.dep-x')
+    if (depX) {
+      const id = depX.closest('[data-dep-id]')?.getAttribute('data-dep-id')
+      if (id) removeDep(id)
       return
     }
 
@@ -2180,18 +2197,26 @@ export function Timeline() {
               ))
             })()}
 
-            <svg className="deps" ref={depsSvgRef} width={contentWidth} height={rowsHeight}>
-              {depPaths.map((p) => (
-                <g key={p.id} data-dep-id={p.id}>
-                  <path className="dep-path" d={p.d} />
-                  <path className="dep-head" d={p.head} />
-                  <path className="dep-hit" d={p.d} data-dep-id={p.id}>
-                    <title>Click to remove this dependency</title>
-                  </path>
-                </g>
-              ))}
-              <path className="dep-path hot" ref={linkPathRef} d="" />
-            </svg>
+              <svg className="deps" ref={depsSvgRef} width={contentWidth} height={rowsHeight}>
+                {depPaths.map((p) => (
+                  <g key={p.id} data-dep-id={p.id}>
+                    <path className="dep-path" d={p.d} />
+                    <path className="dep-head" d={p.head} />
+                    <path className="dep-hit" d={p.d} data-dep-id={p.id} />
+                    {/* Hidden until the line is hovered, and drawn last so it
+                        sits above the line it removes. */}
+                    {/* No data-dep-id of its own: it would make `g[data-dep-id]`
+                        match this group as well as its parent, and the hover
+                        rules key off exactly that selector. */}
+                    <g className="dep-x" transform={`translate(${p.cx},${p.cy})`}>
+                      <circle className="dep-x-bg" r="8" />
+                      <path className="dep-x-mark" d="M-3.1,-3.1 L3.1,3.1 M3.1,-3.1 L-3.1,3.1" />
+                      <title>Remove this dependency</title>
+                    </g>
+                  </g>
+                ))}
+                <path className="dep-path hot" ref={linkPathRef} d="" />
+              </svg>
           </div>
         </div>
       </div>
