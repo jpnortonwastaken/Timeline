@@ -1,0 +1,32 @@
+/* Deliberately one small stylesheet for all three pages - these exist to be
+   read and to be linkable from a consent screen, not to be a website. */
+:root {
+  --bg: #ffffff; --text: #37352f; --muted: #787774; --line: #e9e9e7;
+  --lime: #8bc22b;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #191919; --text: #e9e9e7; --muted: #9b9a97; --line: #2f2f2f; }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 48px 24px 96px;
+  font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  color: var(--text); background: var(--bg);
+}
+main { max-width: 660px; margin: 0 auto; }
+header { display: flex; align-items: center; gap: 12px; margin-bottom: 40px; }
+header img { width: 40px; height: 40px; }
+header b { font-size: 20px; font-weight: 600; }
+header nav { margin-left: auto; display: flex; gap: 18px; font-size: 14px; }
+a { color: var(--text); text-decoration-color: var(--line); text-underline-offset: 3px; }
+a:hover { text-decoration-color: var(--lime); }
+h1 { font-size: 28px; line-height: 1.25; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 34px 0 8px; }
+p, li { color: var(--text); }
+.lede { color: var(--muted); margin: 0 0 32px; }
+.updated { color: var(--muted); font-size: 14px; }
+ul { padding-left: 20px; }
+li { margin: 6px 0; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 40px 0; }
+footer { margin-top: 56px; color: var(--muted); font-size: 14px; }
+code { font-size: 14px; background: var(--line); padding: 1px 5px; border-radius: 4px; }
