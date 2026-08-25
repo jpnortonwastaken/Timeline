@@ -144,8 +144,17 @@ mkdir -p "$BUNDLE/dmg"
 DMGSCRIPT="$BUNDLE/dmg/bundle_dmg.sh"
 if [ ! -f "$DMGSCRIPT" ]; then
   SRC="$(find "$HERE/src-tauri/target" -name bundle_dmg.sh -not -path "$BUNDLE/*" 2>/dev/null | head -1)"
-  [ -n "$SRC" ] || die "bundle_dmg.sh is nowhere under target/. Run
-  'npx tauri build --bundles dmg' once to have Tauri produce it, then retry."
+  if [ -z "$SRC" ]; then
+    # Nowhere to borrow from - a fresh clone, or a `cargo clean`, which takes
+    # these with it. Tauri only writes them while running its own dmg bundler,
+    # so run one against the default target: it lands in a different directory
+    # and leaves the stapled universal app alone.
+    echo "  no dmg tooling found; asking Tauri to produce it"
+    ./node_modules/.bin/tauri build --bundles dmg >/dev/null 2>&1 || true
+    SRC="$(find "$HERE/src-tauri/target" -name bundle_dmg.sh -not -path "$BUNDLE/*" 2>/dev/null | head -1)"
+  fi
+  [ -n "$SRC" ] || die "bundle_dmg.sh could not be produced. Try
+  'npx tauri build --bundles dmg' by hand and read what it says."
   cp "$SRC" "$DMGSCRIPT"
   chmod +x "$DMGSCRIPT"
   SUPPORT="$(dirname "$(dirname "$SRC")")/share/create-dmg"
