@@ -1088,7 +1088,20 @@ body[data-drag] .new-outline { opacity: 0; }
 .link-port:hover::before, .linking .link-port::before { opacity: 1; }
 .link-port:hover::before { transform: scale(1.2); }
 
-.deps { position: absolute; left: 0; top: 0; z-index: 2; pointer-events: none; overflow: visible; }
+/*
+ * Below the bars, not above them.
+ *
+ * At z-index 2 this layer sat over every bar - `.row` sets no z-index, so a
+ * bar's 1 and this layer's 2 compete directly - and a connector's 12px
+ * invisible hit stroke would swallow presses meant for whatever it happened to
+ * cross. On a narrow bar it crossed the twisty, so the dropdown arrow could not
+ * be pressed at all: the connector took the click.
+ *
+ * At 0 it still paints above row backgrounds, because it comes after them in
+ * the DOM, but every bar and its controls now win. Connectors passing behind a
+ * bar is the ordinary Gantt convention anyway.
+ */
+.deps { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; overflow: visible; }
 .dep-path {
   fill: none; stroke: var(--text-3); stroke-width: 1.5;
   stroke-linecap: round; stroke-linejoin: round;
