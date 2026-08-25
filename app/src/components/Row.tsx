@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef } from 'react'
 import type { Row } from '../lib/tree'
-import { dayToX, formatDate, formatSpan } from '../lib/time'
+import { dayToX, formatDate, formatSpan, milestoneCentreX } from '../lib/time'
 import { statusLabel, useStore } from '../store'
 
 interface Props {
@@ -382,7 +382,8 @@ function RowImpl({
           }
           data-bar-id={ghost ? undefined : item.id}
           style={{
-            left: barLeft,
+            /* Centred in its day, not on the boundary before it. */
+            left: sidebarWidth + milestoneCentreX(span.startDay, ppd),
             top: barTop,
             width: barHeight,
             height: barHeight,

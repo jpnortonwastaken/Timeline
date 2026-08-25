@@ -17,6 +17,7 @@ import {
   todayDay,
   totalWidth,
   xToDay,
+  milestoneCentreX,
 } from '../lib/time'
 import { cmd, COLUMN_WIDTH, DENSITY_HEIGHT, fitColumns, HEADER_HEIGHT, TIER_HEIGHT } from '../lib/viewport'
 import { TimelineRow } from './Row'
@@ -1627,8 +1628,12 @@ export function Timeline() {
       const x1 =
         sw +
         (d.linkDir === 'out'
-          ? dayToX(from.span.endDay + (from.span.milestone ? 0 : 1), perDay) + reach
-          : dayToX(from.span.startDay, perDay) - reach)
+          ? (from.span.milestone
+              ? milestoneCentreX(from.span.endDay, perDay)
+              : dayToX(from.span.endDay + 1, perDay)) + reach
+          : (from.span.milestone
+              ? milestoneCentreX(from.span.startDay, perDay)
+              : dayToX(from.span.startDay, perDay)) - reach)
       const y1 = (from.index + 0.5) * rowH
       linkPathRef.current?.setAttribute('d', `M${x1},${y1} L${p.x},${p.y}`)
       const hovered = hitRowAt(e.clientX, e.clientY)

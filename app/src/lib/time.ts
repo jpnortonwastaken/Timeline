@@ -54,6 +54,15 @@ export const clampPpd = (ppd: number) => Math.min(MAX_PPD, Math.max(MIN_PPD, ppd
 
 export const dayToX = (day: number, ppd: number) => (day - WORLD_START_DAY) * ppd
 export const xToDay = (x: number, ppd: number) => WORLD_START_DAY + x / ppd
+/**
+ * Where a milestone's marker belongs, horizontally.
+ *
+ * `dayToX` gives the *start* of a day, which is the correct left edge for a bar
+ * but the wrong place for a point in time: it sits the diamond on the boundary
+ * between that day and the one before, so it reads as belonging to neither.
+ * A milestone on a day sits in the middle of that day.
+ */
+export const milestoneCentreX = (day: number, ppd: number) => dayToX(day, ppd) + ppd / 2
 export const totalWidth = (ppd: number) => WORLD_DAYS * ppd
 
 // ---------------------------------------------------------------------------
