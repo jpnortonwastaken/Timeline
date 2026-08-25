@@ -1074,17 +1074,18 @@ body[data-drag] .new-outline { opacity: 0; }
  * are only passing over stays put.
  */
 /*
- * Inside an outside label the port is an ordinary flex item, after the text.
- * Nothing overlaps any more, so the label no longer has to step aside for it -
- * and stepping aside was what pulled the twisty out from under the pointer.
+ * The label steps aside when the port beneath it is hovered, uncovering the
+ * dot. The port stays where it belongs - just off the end of the bar - because
+ * that is where anyone reaching for a dependency will look for it.
+ *
+ * This is safe now that the connector layer sits below the bars. It was not
+ * before: a connector's hit stroke covered the twisty, which is what actually
+ * made the dropdown arrow unpressable. Moving the port away had looked like a
+ * fix and only hid the port.
  */
-.bar-inner.outside .link-port-end {
-  position: relative; right: auto; top: auto; margin: 0 0 0 3px;
-  width: 22px; height: 22px; flex: 0 0 auto;
+.bar.label-outside:has(.link-port-end:hover) .bar-inner.outside {
+  left: calc(100% + 28px);
 }
-/* Back to centred: the pinned variant offsets its dot to sit 13px off the bar,
-   which means nothing once the port is in the flow. */
-.bar-inner.outside .link-port-end::before { left: 0; right: 0; }
 .link-port:hover::before, .linking .link-port::before { opacity: 1; }
 .link-port:hover::before { transform: scale(1.2); }
 
