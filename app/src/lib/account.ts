@@ -126,6 +126,37 @@ export async function cancelSignIn(): Promise<void> {
   cancel()
 }
 
+/**
+ * Remove the cloud copy and the account, leaving this Mac's plan alone.
+ *
+ * Exists so nobody has to email a stranger and wait to have their own data
+ * deleted - a privacy policy that promises deletion by correspondence is a
+ * promise the user cannot verify and the developer has to keep by hand forever.
+ */
+export async function deleteAccount(): Promise<void> {
+  setState({ busy: true, error: null })
+  try {
+    /* Stop first, or an in-flight merge would happily write the plan straight
+       back into the document that was just deleted. */
+    stopSync()
+    const { deleteAccountAndData } = await import('./auth')
+    await deleteAccountAndData()
+    setState({ phase: 'out', account: null })
+  } catch (err) {
+    const { SignInCancelled } = await import('./auth')
+    if (err instanceof SignInCancelled) {
+      setState({ error: 'Deletion needs you to sign in again to confirm it is you.' })
+    } else {
+      setState({ error: err instanceof Error ? err.message : String(err) })
+    }
+    /* Nothing was necessarily removed, so put syncing back the way it was. */
+    const uid = state.account?.uid
+    if (uid) void startSync(uid)
+  } finally {
+    setState({ busy: false })
+  }
+}
+
 export async function signOutAccount(): Promise<void> {
   setState({ busy: true })
   try {

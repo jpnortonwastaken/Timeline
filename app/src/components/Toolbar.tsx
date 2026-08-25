@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import { POP_OUT_MS, presenceClass, usePresence } from '../lib/presence'
 import { ALL_COLUMNS, useStore } from '../store'
-import { IconClose, IconCloudOff, IconExport, IconImport, IconSignIn, IconSignOut, IconSync } from './icons'
+import { IconClose, IconCloudOff, IconDelete, IconExport, IconImport, IconSignIn, IconSignOut, IconSync } from './icons'
 import { MAX_PPD, MIN_PPD, todayDay, ZOOM_PRESETS } from '../lib/time'
 import { cmd } from '../lib/viewport'
 import type { Density, ThemeMode } from '../types'
@@ -10,7 +10,7 @@ import { firebaseConfigured } from '../lib/firebase'
 import { isTauri } from '../lib/tauri'
 import { checkForUpdate, useUpdate } from '../lib/updates'
 import { useAppVersion } from '../lib/version'
-import { cancelSignIn, signIn, signOutAccount, useAccount, useSyncStatus } from '../lib/account'
+import { cancelSignIn, deleteAccount, signIn, signOutAccount, useAccount, useSyncStatus } from '../lib/account'
 import type { SyncState } from '../lib/sync'
 
 /** Drawn on a 12-unit box, spanning most of it so the tick actually reads at
@@ -94,6 +94,45 @@ function SignInChip() {
 }
 
 /**
+ * Deleting the account, behind a deliberate second press.
+ *
+ * Irreversible and one row below "Sign out", so a single click must never do
+ * it. The confirmation also has to say what survives - people hesitate over
+ * this precisely because they cannot tell whether it takes their work with it.
+ */
+function DeleteAccountItem({ busy }: { busy: boolean }) {
+  const [confirming, setConfirming] = useState(false)
+  if (!confirming) {
+    return (
+      <button className="menu-item danger-item" disabled={busy} onClick={() => setConfirming(true)}>
+        <IconDelete />
+        <span className="menu-label">Delete account…</span>
+      </button>
+    )
+  }
+  return (
+    <div className="menu-confirm">
+      <p className="menu-note warn">
+        Deletes your account and the copy in the cloud. The plan on this Mac stays
+        exactly as it is.
+      </p>
+      <div className="menu-confirm-row">
+        <button
+          className="menu-confirm-go"
+          disabled={busy}
+          onClick={() => void deleteAccount().then(() => setConfirming(false))}
+        >
+          {busy ? 'Deleting…' : 'Delete account'}
+        </button>
+        <button className="menu-confirm-no" disabled={busy} onClick={() => setConfirming(false)}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
  * What sync is doing, in words rather than a coloured dot.
  *
  * "Offline" is stated plainly and without alarm: the plan is on this machine
@@ -170,6 +209,7 @@ function AccountSection({ close }: { close: (fn: () => void) => () => void }) {
             <IconSignOut />
             <span className="menu-label">Sign out</span>
           </button>
+          <DeleteAccountItem busy={busy} />
         </>
       ) : (
         <>

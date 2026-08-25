@@ -93,7 +93,14 @@ export function cancelSignIn(): void {
  * when the user simply closes the browser tab without deciding, which is a
  * normal thing to do and not worth an alarming message.
  */
-export async function signInWithGoogle(): Promise<User> {
+/**
+ * Run the browser flow and come back with a Google ID token.
+ *
+ * Shared by signing in and by re-authenticating, which Firebase demands before
+ * it will delete a user - the same consent screen, the same loopback listener,
+ * a different thing done with the answer.
+ */
+async function googleIdToken(): Promise<string> {
   cancelSignIn()
   if (!isTauri) throw new AuthError('Sign-in is only available in the desktop app')
   if (!googleClientId || !googleClientSecret) {
@@ -103,11 +110,10 @@ export async function signInWithGoogle(): Promise<User> {
   const clientId = googleClientId
   const clientSecret = googleClientSecret
 
-  const [{ start, cancel, onUrl }, { openUrl }, { fetch: tauriFetch }, fb] = await Promise.all([
+  const [{ start, cancel, onUrl }, { openUrl }, { fetch: tauriFetch }] = await Promise.all([
     import('@fabianlars/tauri-plugin-oauth'),
     import('@tauri-apps/plugin-opener'),
     import('@tauri-apps/plugin-http'),
-    firebase(),
   ])
   const { verifier, challenge } = await pkce()
   /* Tying the response back to this request is the whole point of `state` -
@@ -188,16 +194,67 @@ export async function signInWithGoogle(): Promise<User> {
       throw new AuthError(token.error_description ?? 'Google rejected the sign-in')
     }
 
-    const { GoogleAuthProvider, signInWithCredential } = await import('firebase/auth')
-    const cred = await signInWithCredential(
-      fb.auth,
-      GoogleAuthProvider.credential(token.id_token),
-    )
-    return cred.user
+    return token.id_token
   } finally {
     pending = null
     unlisten?.()
     await cancel(port).catch(() => {})
+  }
+}
+
+/** Sign in, running the browser flow and handing the result to Firebase. */
+export async function signInWithGoogle(): Promise<User> {
+  const idToken = await googleIdToken()
+  const { auth } = await firebase()
+  const { GoogleAuthProvider, signInWithCredential } = await import('firebase/auth')
+  const cred = await signInWithCredential(auth, GoogleAuthProvider.credential(idToken))
+  return cred.user
+}
+
+/**
+ * Prove it is still the same person at the keyboard.
+ *
+ * Firebase refuses to delete a user whose session is more than a few minutes
+ * old, and that refusal is worth keeping: it means an unlocked Mac cannot be
+ * used to wipe somebody's account on the way past.
+ */
+export async function reauthenticateWithGoogle(): Promise<void> {
+  const { auth } = await firebase()
+  const user = auth.currentUser
+  if (!user) throw new AuthError('Nobody is signed in')
+  const idToken = await googleIdToken()
+  const { GoogleAuthProvider, reauthenticateWithCredential } = await import('firebase/auth')
+  await reauthenticateWithCredential(user, GoogleAuthProvider.credential(idToken))
+}
+
+/**
+ * Delete the account and everything stored against it.
+ *
+ * The plan document goes first. Once the user is gone their token is worthless
+ * and the security rules reject the write, which would leave the data orphaned
+ * in Firestore with no account left that is allowed to remove it.
+ *
+ * The copy on this Mac is deliberately untouched. Somebody asking not to be
+ * stored in the cloud is not asking to lose their work.
+ */
+export async function deleteAccountAndData(): Promise<void> {
+  const { auth, db } = await firebase()
+  const user = auth.currentUser
+  if (!user) throw new AuthError('Nobody is signed in')
+  const uid = user.uid
+
+  const { doc, deleteDoc } = await import('firebase/firestore')
+  const { deleteUser } = await import('firebase/auth')
+
+  await deleteDoc(doc(db, 'plans', uid))
+  try {
+    await deleteUser(user)
+  } catch (err) {
+    const code = (err as { code?: string }).code
+    if (code !== 'auth/requires-recent-login') throw err
+    await reauthenticateWithGoogle()
+    /* The document is already gone; only the account itself is left. */
+    await deleteUser(auth.currentUser ?? user)
   }
 }
 
