@@ -22,3 +22,9 @@ npm-debug.log*
 .vscode/
 .idea/
 *.swp
+
+# Exported plans. The app writes these wherever it is asked to, and they are
+# somebody's real data - this repo is public, so they must never be committed
+# by an `add -A` that swept the working tree.
+/timeline-*.json
+*.timelime.json

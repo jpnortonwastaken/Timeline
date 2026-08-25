@@ -1,0 +1,404 @@
+{
+  "version": 2,
+  "items": {
+    "i04": {
+      "id": "i04",
+      "title": "Ship 1.0",
+      "parentId": null,
+      "laneId": "l01",
+      "order": 0,
+      "start": {
+        "date": "2026-07-18",
+        "precision": "day"
+      },
+      "end": {
+        "date": "2026-11-26",
+        "precision": "day"
+      },
+      "status": "active",
+      "progress": 0.6,
+      "colorId": "green",
+      "notes": "",
+      "collapsed": false,
+      "createdAt": "2026-02-06T09:00:00.000Z",
+      "updatedAt": "2026-08-22T09:00:00.000Z"
+    },
+    "i05": {
+      "id": "i05",
+      "title": "Design pass",
+      "parentId": "i04",
+      "laneId": "l01",
+      "order": 1,
+      "start": {
+        "date": "2026-07-18",
+        "precision": "day"
+      },
+      "end": {
+        "date": "2026-08-16",
+        "precision": "day"
+      },
+      "status": "done",
+      "progress": 1,
+      "colorId": "gray",
+      "notes": "",
+      "collapsed": false,
+      "createdAt": "2026-02-06T09:00:00.000Z",
+      "updatedAt": "2026-08-22T09:00:00.000Z"
+    },
+    "i06": {
+      "id": "i06",
+      "title": "Build the canvas",
+      "parentId": "i04",
+      "laneId": "l01",
+      "order": 2,
+      "start": {
+        "date": "2026-08-15",
+        "precision": "day"
+      },
+      "end": {
+        "date": "2026-09-27",
+        "precision": "day"
+      },
+      "status": "active",
+      "progress": 0.75,
+      "colorId": "green",
+      "notes": "",
+      "collapsed": false,
+      "createdAt": "2026-02-06T09:00:00.000Z",
+      "updatedAt": "2026-08-22T09:00:00.000Z"
+    },
+    "i07": {
+      "id": "i07",
+      "title": "Cloud sync",
+      "parentId": "i04",
+      "laneId": "l01",
+      "order": 3,
+      "start": {
+        "date": "2026-09-30",
+        "precision": "day"
+      },
+      "end": {
+        "date": "2026-10-29",
+        "precision": "day"
+      },
+      "status": "planned",
+      "progress": null,
+      "colorId": "blue",
+      "notes": "",
+      "collapsed": false,
+      "createdAt": "2026-02-06T09:00:00.000Z",
+      "updatedAt": "2026-08-22T09:00:00.000Z"
+    },
+    "i08": {
+      "id": "i08",
+      "title": "Sign and notarize",
+      "parentId": "i04",
+      "laneId": "l01",
+      "order": 4,
+      "start": {
+        "date": "2026-11-01",
+        "precision": "day"
+      },
+      "end": {
+        "date": "2026-11-16",
+        "precision": "day"
+      },
+      "status": "planned",
+      "progress": null,
+      "colorId": "gray",
+      "notes": "",
+      "collapsed": false,
+      "createdAt": "2026-02-06T09:00:00.000Z",
+      "updatedAt": "2026-08-22T09:00:00.000Z"
+    },
+    "i09": {
+      "id": "i09",
+      "title": "Launch",
+      "parentId": "i04",
+      "laneId": "l01",
+      "order": 5,
+      "start": {
+        "date": "2026-11-23",
+        "precision": "day"
+      },
+      "end": null,
+      "status": "planned",
+      "progress": null,
+      "colorId": "green",
+      "notes": "",
+      "collapsed": false,
+      "createdAt": "2026-02-06T09:00:00.000Z",
+      "updatedAt": "2026-08-22T09:00:00.000Z"
+    },
+    "i14": {
+      "id": "i14",
+      "title": "Beta with 20 people",
+      "parentId": null,
+      "laneId": "l01",
+      "order": 6,
+      "start": {
+        "date": "2026-10-08",
+        "precision": "day"
+      },
+      "end": {
+        "date": "2026-11-10",
+        "precision": "day"
+      },
+      "status": "planned",
+      "progress": null,
+      "colorId": "orange",
+      "notes": "",
+      "collapsed": false,
+      "createdAt": "2026-02-06T09:00:00.000Z",
+      "updatedAt": "2026-08-22T09:00:00.000Z"
+    },
+    "i15": {
+      "id": "i15",
+      "title": "Q4 planning",
+      "parentId": null,
+      "laneId": "l02",
+      "order": 7,
+      "start": {
+        "date": "2026-09-24",
+        "precision": "month"
+      },
+      "end": {
+        "date": "2026-12-24",
+        "precision": "month"
+      },
+      "status": "idea",
+      "progress": null,
+      "colorId": "blue",
+      "notes": "",
+      "collapsed": true,
+      "createdAt": "2026-02-06T09:00:00.000Z",
+      "updatedAt": "2026-08-22T09:00:00.000Z"
+    },
+    "i16": {
+      "id": "i16",
+      "title": "Hire two engineers",
+      "parentId": "i15",
+      "laneId": "l02",
+      "order": 8,
+      "start": {
+        "date": "2026-09-28",
+        "precision": "month"
+      },
+      "end": {
+        "date": "2026-12-02",
+        "precision": "month"
+      },
+      "status": "idea",
+      "progress": null,
+      "colorId": "blue",
+      "notes": "",
+      "collapsed": false,
+      "createdAt": "2026-02-06T09:00:00.000Z",
+      "updatedAt": "2026-08-22T09:00:00.000Z"
+    },
+    "i17": {
+      "id": "i17",
+      "title": "Fundraising",
+      "parentId": "i15",
+      "laneId": "l02",
+      "order": 9,
+      "start": {
+        "date": "2026-10-26",
+        "precision": "month"
+      },
+      "end": {
+        "date": "2026-12-22",
+        "precision": "month"
+      },
+      "status": "idea",
+      "progress": null,
+      "colorId": "blue",
+      "notes": "",
+      "collapsed": false,
+      "createdAt": "2026-02-06T09:00:00.000Z",
+      "updatedAt": "2026-08-22T09:00:00.000Z"
+    },
+    "i18": {
+      "id": "i18",
+      "title": "Team offsite",
+      "parentId": null,
+      "laneId": "l02",
+      "order": 10,
+      "start": {
+        "date": "2026-12-03",
+        "precision": "day"
+      },
+      "end": {
+        "date": "2026-12-08",
+        "precision": "day"
+      },
+      "status": "planned",
+      "progress": null,
+      "colorId": "pink",
+      "notes": "",
+      "collapsed": false,
+      "createdAt": "2026-02-06T09:00:00.000Z",
+      "updatedAt": "2026-08-22T09:00:00.000Z"
+    },
+    "i19": {
+      "id": "i19",
+      "title": "Japan, three weeks",
+      "parentId": null,
+      "laneId": "l03",
+      "order": 11,
+      "start": {
+        "date": "2026-10-26",
+        "precision": "day"
+      },
+      "end": {
+        "date": "2026-11-16",
+        "precision": "day"
+      },
+      "status": "planned",
+      "progress": null,
+      "colorId": "red",
+      "notes": "",
+      "collapsed": true,
+      "createdAt": "2026-02-06T09:00:00.000Z",
+      "updatedAt": "2026-08-22T09:00:00.000Z"
+    },
+    "i20": {
+      "id": "i20",
+      "title": "Book flights",
+      "parentId": "i19",
+      "laneId": "l03",
+      "order": 12,
+      "start": {
+        "date": "2026-09-14",
+        "precision": "day"
+      },
+      "end": {
+        "date": "2026-09-17",
+        "precision": "day"
+      },
+      "status": "done",
+      "progress": 1,
+      "colorId": "gray",
+      "notes": "",
+      "collapsed": false,
+      "createdAt": "2026-02-06T09:00:00.000Z",
+      "updatedAt": "2026-08-22T09:00:00.000Z"
+    },
+    "i21": {
+      "id": "i21",
+      "title": "Route and rail pass",
+      "parentId": "i19",
+      "laneId": "l03",
+      "order": 13,
+      "start": {
+        "date": "2026-09-28",
+        "precision": "day"
+      },
+      "end": {
+        "date": "2026-10-17",
+        "precision": "day"
+      },
+      "status": "planned",
+      "progress": 0.4,
+      "colorId": "red",
+      "notes": "",
+      "collapsed": false,
+      "createdAt": "2026-02-06T09:00:00.000Z",
+      "updatedAt": "2026-08-22T09:00:00.000Z"
+    },
+    "i22": {
+      "id": "i22",
+      "title": "Half marathon",
+      "parentId": null,
+      "laneId": "l03",
+      "order": 14,
+      "start": {
+        "date": "2026-12-21",
+        "precision": "day"
+      },
+      "end": null,
+      "status": "planned",
+      "progress": null,
+      "colorId": "purple",
+      "notes": "",
+      "collapsed": false,
+      "createdAt": "2026-02-06T09:00:00.000Z",
+      "updatedAt": "2026-08-22T09:00:00.000Z"
+    },
+    "i23": {
+      "id": "i23",
+      "title": "Learn to cook properly",
+      "parentId": null,
+      "laneId": "l03",
+      "order": 15,
+      "start": {
+        "date": "2026-08-05",
+        "precision": "day"
+      },
+      "end": {
+        "date": "2027-01-01",
+        "precision": "day"
+      },
+      "status": "active",
+      "progress": 0.3,
+      "colorId": "yellow",
+      "notes": "",
+      "collapsed": false,
+      "createdAt": "2026-02-06T09:00:00.000Z",
+      "updatedAt": "2026-08-22T09:00:00.000Z"
+    }
+  },
+  "lanes": {
+    "l01": {
+      "id": "l01",
+      "name": "Timelime",
+      "colorId": "green",
+      "order": 0,
+      "collapsed": false
+    },
+    "l02": {
+      "id": "l02",
+      "name": "Company",
+      "colorId": "blue",
+      "order": 1,
+      "collapsed": false
+    },
+    "l03": {
+      "id": "l03",
+      "name": "Life",
+      "colorId": "purple",
+      "order": 2,
+      "collapsed": false
+    }
+  },
+  "deps": {
+    "dp10": {
+      "id": "dp10",
+      "fromId": "i05",
+      "toId": "i06",
+      "type": "finish-to-start",
+      "lagDays": 0
+    },
+    "dp11": {
+      "id": "dp11",
+      "fromId": "i06",
+      "toId": "i07",
+      "type": "finish-to-start",
+      "lagDays": 0
+    },
+    "dp12": {
+      "id": "dp12",
+      "fromId": "i07",
+      "toId": "i08",
+      "type": "finish-to-start",
+      "lagDays": 0
+    },
+    "dp13": {
+      "id": "dp13",
+      "fromId": "i08",
+      "toId": "i09",
+      "type": "finish-to-start",
+      "lagDays": 0
+    }
+  }
+}

@@ -30,3 +30,20 @@ li { margin: 6px 0; }
 hr { border: 0; border-top: 1px solid var(--line); margin: 40px 0; }
 footer { margin-top: 56px; color: var(--muted); font-size: 14px; }
 code { font-size: 14px; background: var(--line); padding: 1px 5px; border-radius: 4px; }
+
+/* The app screenshot ------------------------------------------------------ */
+.shot {
+  margin: 0 0 40px;
+  /* Wider than the prose it sits under: the window has a lot of small detail,
+     and the column is sized for reading rather than for looking. */
+  width: min(96vw, 1120px);
+  margin-left: calc(50% - min(48vw, 560px));
+}
+.shot img {
+  display: block; width: 100%; height: auto;
+  /* The capture carries its own macOS drop shadow in the alpha channel, so
+     nothing is added here - a second shadow under the first reads as a smudge. */
+}
+@media (max-width: 700px) {
+  .shot { width: 100%; margin-left: 0; }
+}
