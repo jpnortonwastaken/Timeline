@@ -33,17 +33,13 @@ code { font-size: 14px; background: var(--line); padding: 1px 5px; border-radius
 
 /* The app screenshot ------------------------------------------------------ */
 .shot {
+  /* Held to the text column rather than breaking out of it. At full width the
+     window dominated a page that is mostly a paragraph and three links. */
   margin: 0 0 40px;
-  /* Wider than the prose it sits under: the window has a lot of small detail,
-     and the column is sized for reading rather than for looking. */
-  width: min(96vw, 1120px);
-  margin-left: calc(50% - min(48vw, 560px));
+  width: 100%;
 }
 .shot img {
   display: block; width: 100%; height: auto;
   /* The capture carries its own macOS drop shadow in the alpha channel, so
      nothing is added here - a second shadow under the first reads as a smudge. */
-}
-@media (max-width: 700px) {
-  .shot { width: 100%; margin-left: 0; }
 }

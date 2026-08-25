@@ -1,18 +1,20 @@
-# Timeline
+# Timelime
 
-A timeline for planning projects and a whole life on the same canvas. Notion's
-timeline view as a starting point, with the annoying parts fixed.
-
-```bash
-npm run dev
-```
+Engineering notes. What the pieces are, and the things that were harder than
+they looked - written down so they are not rediscovered. For what the app *is*,
+see the [root README](../README.md).
 
 ```bash
-npm run tauri dev
+npm run dev        # in a browser
+npm run tauri dev  # the Mac app
+npm test           # the sync merge
 ```
 
-The first runs it in a browser; the second runs the Mac app. `npm run tauri build`
-produces `src-tauri/target/release/bundle/macos/Timeline.app` and a `.dmg`.
+`npm run tauri build` produces
+`src-tauri/target/release/bundle/macos/Timelime.app`. For anything anyone else
+will run, use `npm run release` instead - see **Releasing** below, because
+signed, notarized and stapled are three separate things and they fail
+differently.
 
 ## Where things live
 
