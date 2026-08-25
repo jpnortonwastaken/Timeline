@@ -151,3 +151,12 @@ export const IconSync = () => (
     <path d="M2.8 3.2V6h2.8M13.2 12.8V10h-2.8" />
   </Glyph>
 )
+
+/** A cloud with a slash: stored here, and nowhere else yet. */
+export const IconCloudOff = () => (
+  <Glyph>
+    <path d="M5.6 12.4h5.2a2.9 2.9 0 0 0 .5-5.75 4 4 0 0 0-6.2-2.5" />
+    <path d="M4.4 5.9a3.25 3.25 0 0 0 .3 6.5" />
+    <path d="M2.2 2.2 13.8 13.8" />
+  </Glyph>
+)

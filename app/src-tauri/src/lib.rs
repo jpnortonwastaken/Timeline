@@ -93,6 +93,12 @@ pub fn run() {
         // app drew. `oauth` is the loopback listener Google redirects back to.
         .plugin(tauri_plugin_oauth::init())
         .plugin(tauri_plugin_opener::init())
+        // Only the token exchange goes through here - see auth.ts. Granting the
+        // permission is not enough on its own: the ACL will happily allow a
+        // command belonging to a plugin that was never registered, and the call
+        // then fails with "plugin http not found" rather than anything about
+        // permissions.
+        .plugin(tauri_plugin_http::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(

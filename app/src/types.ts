@@ -67,6 +67,10 @@ export interface PersistedState extends Snapshot {
   version: number
   /** Per-record change stamps for sync. Absent on plans that predate it. */
   revisions?: Revisions
+  /** Still exactly what `seed()` produced - nothing here is the user's yet. */
+  pristine?: boolean
+  /** Times the app has been opened. Paces the second sign-in ask. */
+  launches?: number
   ppd: number
   sidebarWidth: number
   density: Density

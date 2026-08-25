@@ -201,6 +201,31 @@ const initial = persisted?.items
   ? { items: persisted.items, lanes: persisted.lanes ?? {}, deps: persisted.deps ?? {} }
   : seed()
 
+/**
+ * Whether this plan is still the untouched sample.
+ *
+ * `seed()` mints fresh nanoid ids on every install, so a second Mac's sample
+ * data is 22 records no other device has ever seen. Merging it into a real plan
+ * is what the merge is *supposed* to do with unknown records - which is exactly
+ * the wrong outcome. Knowing the plan is untouched lets the first sync adopt
+ * the cloud's copy outright instead of blending sample data into it.
+ *
+ * A plan saved before this flag existed is not pristine: it has been in use.
+ */
+let pristine = persisted?.items ? (persisted.pristine ?? false) : true
+export const isPristine = () => pristine
+
+/**
+ * How many times the app has been opened, counting this one.
+ *
+ * Used to time the second sign-in ask. Item counts are no good for it - the
+ * sample plan is 22 blocks on a fresh install, so any threshold fires
+ * immediately - and edit counts are worse, because one drag emits dozens.
+ * Coming back a second time is a signal neither of those can fake.
+ */
+const launches = (persisted?.launches ?? 0) + 1
+export const launchCount = () => launches
+
 export const useStore = create<State & Actions>((set, get) => ({
   items: initial.items,
   lanes: initial.lanes as Record<LaneId, Lane>,
@@ -212,7 +237,9 @@ export const useStore = create<State & Actions>((set, get) => ({
   minimapFullHeight: persisted?.minimapFullHeight ?? false,
   sidebarWidth: persisted?.sidebarWidth ?? 360,
   sidebarOpen: persisted?.sidebarOpen ?? true,
-  density: persisted?.density ?? 'normal',
+  // Roomy by default: the canvas reads better with air between the bars, and
+  // a plan you are scanning is easier to follow than one you are packing in.
+  density: persisted?.density ?? 'roomy',
   visibleColumns: persisted?.visibleColumns ?? ['dates', 'span'],
   themeMode: (localStorage.getItem('timeline.theme') as ThemeMode) ?? 'auto',
 
@@ -692,15 +719,25 @@ let applyingMerge = false
 
 useStore.subscribe((s, prev) => {
   if (applyingMerge) return
-  revisions = trackChanges(prev, s, revisions)
+  const next = trackChanges(prev, s, revisions)
+  /* The first edit the user makes is the moment the sample stops being sample
+     - `trackChanges` returning something new is exactly that signal. */
+  if (next !== revisions) {
+    revisions = next
+    pristine = false
+  }
 })
 
 connectPlan({
   read: () => ({ data: snapshot(useStore.getState()), revs: revisions }),
+  isPristine,
   write: (data, revs) => {
     applyingMerge = true
     try {
       revisions = revs
+      /* Whatever arrives from the cloud is the user's real plan, sample or no
+         sample - there is nothing left to protect from a merge after this. */
+      pristine = false
       /* No `commit()`: a merge arriving from another device is not something
          the user did here, and putting it on the undo stack would let Cmd-Z
          appear to reverse someone else's edit. */
@@ -731,6 +768,8 @@ useStore.subscribe((s) => {
       lanes: s.lanes,
       deps: s.deps,
       revisions,
+      pristine,
+      launches,
       ppd: s.ppd,
       autoShift: s.autoShift,
       noLaneCollapsed: s.noLaneCollapsed,

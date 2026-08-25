@@ -16,6 +16,13 @@
 import type { User } from 'firebase/auth'
 import { firebase, googleClientId, googleClientSecret } from './firebase'
 import { isTauri } from './tauri'
+/*
+ * Inlined as data URIs, because this page is served by the loopback listener
+ * as a single self-contained response - there is no server behind it to fetch
+ * an image from. 96px so it stays crisp on a retina display at its 48px size.
+ */
+import markLight from '../assets/mark-light.png?inline'
+import markDark from '../assets/mark-dark.png?inline'
 
 const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth'
 const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token'
@@ -24,13 +31,23 @@ const SCOPES = 'openid email profile'
 
 /** What the browser tab shows once Google has handed the code back. */
 const DONE_PAGE = `<!doctype html><html><head><meta charset="utf-8">
-<title>Signed in</title><style>
+<title>Signed in to Timelime</title><style>
 body{font:15px -apple-system,system-ui,sans-serif;color:#37352f;background:#fff;
 display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
-div{text-align:center}h1{font-size:17px;font-weight:600;margin:0 0 6px}
-p{margin:0;color:#787774}@media(prefers-color-scheme:dark){
-body{background:#191919;color:#e9e9e7}p{color:#9b9a97}}
-</style></head><body><div><h1>You're signed in to Timelime</h1>
+div{text-align:center}
+img{width:48px;height:48px;display:block;margin:0 auto 14px;border-radius:11px}
+h1{font-size:17px;font-weight:600;margin:0 0 6px}
+p{margin:0;color:#787774}
+/* The marks carry their own background - no alpha - so each needs the page
+   behind it to match, same as the one in the toolbar. */
+.dark{display:none}
+@media(prefers-color-scheme:dark){
+body{background:#191919;color:#e9e9e7}p{color:#9b9a97}
+.light{display:none}.dark{display:block}}
+</style></head><body><div>
+<img class="light" src="${markLight}" alt="">
+<img class="dark" src="${markDark}" alt="">
+<h1>You're signed in to Timelime</h1>
 <p>You can close this tab and go back to the app.</p></div></body></html>`
 
 function randomUrlSafe(bytes = 32): string {
@@ -53,6 +70,25 @@ async function pkce(): Promise<{ verifier: string; challenge: string }> {
 }
 
 export class AuthError extends Error {}
+/**
+ * The user backed out - closed the tab, hit Deny, or started again. Not a
+ * failure, and not worth showing in red.
+ */
+export class SignInCancelled extends Error {}
+
+/**
+ * The attempt currently waiting on the browser.
+ *
+ * A closed tab sends nothing, so the listener cannot tell "gone" from "still
+ * deciding" and would otherwise sit there until the timeout. This is the way
+ * out: the UI offers a cancel, and starting a second attempt aborts the first
+ * rather than leaving two listeners racing for one redirect.
+ */
+let pending: { abort: (reason: Error) => void } | null = null
+
+export function cancelSignIn(): void {
+  pending?.abort(new SignInCancelled('Sign-in cancelled'))
+}
 
 /**
  * Run the whole flow. Resolves with the signed-in user, or throws - including
@@ -60,6 +96,7 @@ export class AuthError extends Error {}
  * normal thing to do and not worth an alarming message.
  */
 export async function signInWithGoogle(): Promise<User> {
+  cancelSignIn()
   if (!isTauri) throw new AuthError('Sign-in is only available in the desktop app')
   if (!googleClientId || !googleClientSecret) {
     throw new AuthError('This build has no Google client configured')
@@ -89,6 +126,12 @@ export async function signInWithGoogle(): Promise<User> {
         () => reject(new AuthError('Sign-in timed out')),
         5 * 60 * 1000,
       )
+      pending = {
+        abort: (reason) => {
+          clearTimeout(timer)
+          reject(reason)
+        },
+      }
       void onUrl((url) => {
         clearTimeout(timer)
         const params = new URL(url).searchParams
@@ -98,7 +141,7 @@ export async function signInWithGoogle(): Promise<User> {
         }
         const err = params.get('error')
         if (err) {
-          reject(new AuthError(err === 'access_denied' ? 'Sign-in was cancelled' : err))
+          reject(err === 'access_denied' ? new SignInCancelled(err) : new AuthError(err))
           return
         }
         const c = params.get('code')
@@ -122,7 +165,12 @@ export async function signInWithGoogle(): Promise<User> {
              with several signed in, which looks like the app picking for you. */
           prompt: 'select_account',
         })
-      void openUrl(authUrl).catch(() => reject(new AuthError('Could not open your browser')))
+      /* Keep the underlying reason: "could not open your browser" on its own
+         is indistinguishable between a missing permission, a blocked scope and
+         an actual failure to launch anything. */
+      void openUrl(authUrl).catch((e: unknown) =>
+        reject(new AuthError(`Could not open your browser - ${e instanceof Error ? e.message : String(e)}`)),
+      )
     })
 
     const res = await tauriFetch(TOKEN_ENDPOINT, {
@@ -149,6 +197,7 @@ export async function signInWithGoogle(): Promise<User> {
     )
     return cred.user
   } finally {
+    pending = null
     unlisten?.()
     await cancel(port).catch(() => {})
   }

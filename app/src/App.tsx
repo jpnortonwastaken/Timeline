@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Toolbar } from './components/Toolbar'
+import { SignInPrompt } from './components/SignInPrompt'
 import { Timeline } from './components/Timeline'
 import { DetailPanel } from './components/DetailPanel'
 import { Minimap } from './components/Minimap'
@@ -324,6 +325,7 @@ export default function App() {
         <span className="hint"><kbd>Tab</kbd> indent</span>
         <span className="hint">right-click for more</span>
       </footer>
+      <SignInPrompt />
     </div>
   )
 }

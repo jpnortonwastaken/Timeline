@@ -14,3 +14,9 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+/** Vite returns a base64 data URI for these, rather than a URL. */
+declare module '*.png?inline' {
+  const src: string
+  export default src
+}

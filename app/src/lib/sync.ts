@@ -60,6 +60,10 @@ interface Doc {
 
 const emptyDoc = (): Doc => ({ data: { items: {}, lanes: {}, deps: {} }, revs: emptyRevisions() })
 
+/** An account that has never synced has a document, but nothing in it. */
+const hasRecords = (d: Snapshot) =>
+  Object.keys(d.items).length > 0 || Object.keys(d.lanes).length > 0
+
 /**
  * The plan travels as two JSON strings rather than as nested Firestore maps.
  *
@@ -98,6 +102,8 @@ function decode(raw: unknown): Doc {
 /** Wired up by store.ts, which owns the plan this module mirrors. */
 export interface PlanBridge {
   read: () => Side
+  /** True while the plan is still the untouched sample - see store.ts. */
+  isPristine: () => boolean
   write: (data: Snapshot, revs: Revisions) => void
   subscribe: (fn: () => void) => () => void
 }
@@ -110,6 +116,14 @@ let stop: (() => void) | null = null
 let pushTimer: number | undefined
 let pushing = false
 let pushAgain = false
+/**
+ * Set when this device has an edit that has not reached the server yet.
+ *
+ * Only that deserves to be called "saving". A pass triggered by someone else's
+ * write is receiving, not saving, and announcing it made the status look
+ * permanently busy even when there was nothing to do.
+ */
+let dirty = false
 
 /**
  * Begin mirroring this account's plan. Safe to call repeatedly; the previous
@@ -132,13 +146,23 @@ export async function startSync(uid: string): Promise<void> {
       return
     }
     pushing = true
-    setState({ status: 'syncing' })
+    const announce = dirty
+    dirty = false
+    if (announce) setState({ status: 'syncing' })
     try {
       const merged = await runTransaction(db, async (tx) => {
         const snap = await tx.get(ref)
         const remote = decode(snap.data())
         const local = bridge!.read()
-        const m = mergePlans(local, remote)
+        /*
+         * Signing in on a new machine: adopt the cloud outright rather than
+         * merging. The local side is the sample plan, and its records are
+         * genuinely unknown to the merge - blending them in would sprinkle 22
+         * sample items through a real plan and then sync them everywhere else.
+         */
+        const m = bridge!.isPristine() && hasRecords(remote.data)
+          ? { data: remote.data, revs: remote.revs, changedLocal: true, changedRemote: false }
+          : mergePlans(local, remote)
         if (m.changedRemote) {
           const body = encode({ data: m.data, revs: m.revs })
           if (body.payload.length > SIZE_WARN) {
@@ -158,6 +182,8 @@ export async function startSync(uid: string): Promise<void> {
       /* Offline is the ordinary case, not a fault: the local plan is intact and
          the next successful pass will carry everything up. */
       const offline = /offline|unavailable|network/i.test(msg)
+      /* Nothing reached the server, so the edit is still outstanding. */
+      dirty = dirty || announce
       setState({ status: offline ? 'offline' : 'error', message: offline ? undefined : msg })
     } finally {
       pushing = false
@@ -169,6 +195,7 @@ export async function startSync(uid: string): Promise<void> {
   }
 
   const schedule = () => {
+    dirty = true
     clearTimeout(pushTimer)
     pushTimer = setTimeout(() => void sync(), PUSH_DEBOUNCE) as unknown as number
   }
@@ -200,5 +227,6 @@ export function stopSync(): void {
   clearTimeout(pushTimer)
   pushing = false
   pushAgain = false
+  dirty = false
   setState({ status: 'off', at: null, message: undefined })
 }

@@ -1,13 +1,13 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import { POP_OUT_MS, presenceClass, usePresence } from '../lib/presence'
 import { ALL_COLUMNS, useStore } from '../store'
-import { IconExport, IconImport, IconSignIn, IconSignOut, IconSync } from './icons'
+import { IconCloudOff, IconExport, IconImport, IconSignIn, IconSignOut, IconSync } from './icons'
 import { MAX_PPD, MIN_PPD, todayDay, ZOOM_PRESETS } from '../lib/time'
 import { cmd } from '../lib/viewport'
 import type { Density, ThemeMode } from '../types'
 import { downloadJSON, pickAndImport } from '../lib/io'
 import { firebaseConfigured } from '../lib/firebase'
-import { signIn, signOutAccount, useAccount, useSyncStatus } from '../lib/account'
+import { cancelSignIn, signIn, signOutAccount, useAccount, useSyncStatus } from '../lib/account'
 import type { SyncState } from '../lib/sync'
 
 /** Drawn on a 12-unit box, spanning most of it so the tick actually reads at
@@ -26,6 +26,30 @@ function RadioItem({ label, on, onClick }: { label: string; on: boolean; onClick
     <button className="menu-item" role="menuitemradio" aria-checked={on} onClick={onClick}>
       <span className={'menu-radio' + (on ? ' on' : '')} />
       <span className="menu-label">{label}</span>
+    </button>
+  )
+}
+
+/**
+ * A standing "not backed up" marker while signed out.
+ *
+ * Sign-in used to live only inside the settings menu, which is somewhere
+ * nobody looks - the feature may as well not have existed. This keeps it one
+ * click away without nagging: it is quiet, it is the same size as every other
+ * toolbar button, and it disappears the moment there is an account.
+ */
+function SignInChip() {
+  const { phase, busy } = useAccount()
+  if (!firebaseConfigured || phase !== 'out') return null
+  return (
+    <button
+      className="btn icon sign-in-chip"
+      onClick={() => void signIn()}
+      disabled={busy}
+      title="Sign in to sync your plan across Macs"
+      aria-label="Sign in to sync your plan across Macs"
+    >
+      <IconCloudOff />
     </button>
   )
 }
@@ -71,6 +95,14 @@ function relativeTime(at: number): string {
 function AccountSection({ close }: { close: (fn: () => void) => () => void }) {
   const { phase, account, error, busy } = useAccount()
   const sync = useSyncStatus()
+  /* "Synced just now" has to stop being true on its own - the sync state does
+     not change while idle, so nothing else would ever re-render this. */
+  const [, tick] = useReducer((n: number) => n + 1, 0)
+  useEffect(() => {
+    if (sync.status !== 'synced') return
+    const id = setInterval(tick, 30_000)
+    return () => clearInterval(id)
+  }, [sync.status, sync.at])
   if (!firebaseConfigured) return null
 
   return (
@@ -104,17 +136,25 @@ function AccountSection({ close }: { close: (fn: () => void) => () => void }) {
         <>
           <button
             className="menu-item"
-            disabled={busy || phase === 'unknown'}
-            onClick={() => void signIn()}
+            disabled={phase === 'unknown'}
+            onClick={() => void (busy ? cancelSignIn() : signIn())}
           >
             <IconSignIn />
+            {/* Measured, not guessed: the label has 160px, and "Waiting for
+                your browser…" needs 168 and so wrapped onto a second line. */}
             <span className="menu-label">
-              {busy ? 'Waiting for your browser…' : 'Sign in with Google'}
+              {busy ? 'Waiting for browser…' : 'Sign in with Google'}
             </span>
           </button>
-          <p className="menu-note">
-            Sync your plan across Macs. It stays on this one either way.
-          </p>
+          {busy ? (
+            /* A closed tab sends nothing back, so the wait cannot end itself.
+               This is the way out, rather than sitting until the timeout. */
+            <p className="menu-note">Press again to cancel.</p>
+          ) : (
+            <p className="menu-note">
+              Sync your plan across Macs. It stays on this one either way.
+            </p>
+          )}
         </>
       )}
       {error && <p className="menu-note warn">{error}</p>}
@@ -631,6 +671,7 @@ export function Toolbar() {
         </div>
         )}
 
+        <SignInChip />
         <ViewMenu />
 
       </div>

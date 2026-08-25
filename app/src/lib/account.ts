@@ -96,10 +96,19 @@ export async function signIn(): Promise<void> {
     await signInWithGoogle()
     /* `subscribeUser` reports the new session and starts sync; nothing to do. */
   } catch (err) {
-    setState({ error: err instanceof Error ? err.message : String(err) })
+    const { SignInCancelled } = await import('./auth')
+    /* Backing out is a decision, not a fault - it leaves no message behind. */
+    if (err instanceof SignInCancelled) setState({ error: null })
+    else setState({ error: err instanceof Error ? err.message : String(err) })
   } finally {
     setState({ busy: false })
   }
+}
+
+/** Abandon an attempt that is still waiting on the browser. */
+export async function cancelSignIn(): Promise<void> {
+  const { cancelSignIn: cancel } = await import('./auth')
+  cancel()
 }
 
 export async function signOutAccount(): Promise<void> {

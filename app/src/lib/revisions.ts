@@ -110,6 +110,39 @@ export function seedRevisions(data: Snapshot, now = new Date().toISOString()): R
 /** Missing means "older than anything", so a tracked record always wins. */
 const stamp = (r: Rev | undefined) => r?.at ?? ''
 
+/**
+ * Key order is not meaningful here, and it differs between a record this device
+ * built and the same record parsed back out of JSON. Sorting makes the two
+ * comparable.
+ */
+function stable(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
+  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`
+  const o = value as Record<string, unknown>
+  return `{${Object.keys(o)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${stable(o[k])}`)
+    .join(',')}}`
+}
+
+/**
+ * Records must be compared by value, never by identity.
+ *
+ * Everything arriving from the server has just been through `JSON.parse`, so
+ * every record is a fresh object no matter how unchanged it is. Comparing
+ * references reports a difference every single time, and a sync that always
+ * believes it has something to write will write, receive its own write back,
+ * and start again - forever. Identity is kept only as a fast path.
+ */
+const same = (a: unknown, b: unknown) =>
+  a === b || (a !== undefined && b !== undefined && stable(a) === stable(b))
+
+function sameMap(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const ak = Object.keys(a)
+  if (ak.length !== Object.keys(b).length) return false
+  return ak.every((k) => k in b && same(a[k], b[k]))
+}
+
 export interface Side {
   data: Snapshot
   revs: Revisions
@@ -172,13 +205,23 @@ export function mergePlans(local: Side, remote: Side, now = new Date().toISOStri
         }
       }
 
-      const merged = (data[key] as Record<string, unknown>)[id]
-      if (merged !== lData[id]) changedLocal = true
-      if (merged !== rData[id]) changedRemote = true
     }
+  }
 
-    if (Object.keys(revs[key]).length !== Object.keys(lRev).length) changedLocal = true
-    if (Object.keys(revs[key]).length !== Object.keys(rRev).length) changedRemote = true
+  for (const key of COLLECTIONS) {
+    const merged = data[key] as Record<string, unknown>
+    if (
+      !sameMap(merged, local.data[key] as Record<string, unknown>) ||
+      !sameMap(revs[key], local.revs[key])
+    ) {
+      changedLocal = true
+    }
+    if (
+      !sameMap(merged, remote.data[key] as Record<string, unknown>) ||
+      !sameMap(revs[key], remote.revs[key])
+    ) {
+      changedRemote = true
+    }
   }
 
   return { data, revs, changedLocal, changedRemote }

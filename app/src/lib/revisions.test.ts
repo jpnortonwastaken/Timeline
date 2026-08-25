@@ -128,5 +128,21 @@ const check = (name: string, cond: boolean, extra?: unknown) => {
   check('converges regardless of side', JSON.stringify(ab) === JSON.stringify(ba))
 }
 
+// 9. THE LOOP: remote data always arrives freshly parsed, so every record is a
+//    new object. Reference equality calls that a change, writes, gets its own
+//    write echoed back, and does it again - forever.
+{
+  const base = snap([it('a', 'A'), it('b', 'B')])
+  const revs = seedRevisions(base, '2026-01-01T00:00:00Z')
+  const local = { data: base, revs }
+  const remote = {
+    data: JSON.parse(JSON.stringify(base)) as Snapshot,
+    revs: JSON.parse(JSON.stringify(revs)) as typeof revs,
+  }
+  const m = mergePlans(local, remote, '2026-02-01T00:00:00Z')
+  check('settled plan needs no local update', !m.changedLocal)
+  check('settled plan needs no remote write', !m.changedRemote)
+}
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
