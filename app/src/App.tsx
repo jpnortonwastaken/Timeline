@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Toolbar } from './components/Toolbar'
 import { SignInPrompt } from './components/SignInPrompt'
 import { UpdateBanner } from './components/UpdateBanner'
+import { AccountConfirm } from './components/AccountConfirm'
 import { Timeline } from './components/Timeline'
 import { DetailPanel } from './components/DetailPanel'
 import { Minimap } from './components/Minimap'
@@ -330,6 +331,7 @@ export default function App() {
       </footer>
       <SignInPrompt />
       <UpdateBanner />
+      <AccountConfirm />
     </div>
   )
 }

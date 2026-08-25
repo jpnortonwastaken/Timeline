@@ -42,6 +42,9 @@ function subscribe(fn: () => void) {
   return () => listeners.delete(fn)
 }
 
+/** The current value, for callers outside React that need it right now. */
+export const getAccountState = (): AccountState => state
+
 export function useAccount(): AccountState {
   return useSyncExternalStore(subscribe, () => state)
 }
