@@ -34,6 +34,8 @@ export interface UpdateState {
   /** 0-1 while downloading, when the server sent a length to measure against. */
   progress: number
   message?: string
+  /** The updater's own wording, kept for the hover text. */
+  raw?: string
 }
 
 let state: UpdateState = { phase: 'idle', info: null, progress: 0 }
@@ -54,6 +56,31 @@ let pending: { downloadAndInstall: (cb?: (e: unknown) => void) => Promise<void> 
 /** How long after launch to look. Long enough to be out of the way of startup. */
 const FIRST_CHECK_DELAY = 8000
 
+/**
+ * Turn the updater's own wording into something a person can act on.
+ *
+ * The raw strings describe the mechanism, not the situation: "could not fetch a
+ * valid release JSON from the remote" is what a missing release looks like, and
+ * reads like a crash. The original is kept and shown on hover, because when
+ * something really is broken that is the text worth having.
+ */
+function friendlyError(raw: string): string {
+  const t = raw.toLowerCase()
+  if (t.includes('release json') || t.includes('404') || t.includes('not found')) {
+    return 'No published releases to update to yet.'
+  }
+  if (t.includes('offline') || t.includes('network') || t.includes('dns') || t.includes('connect')) {
+    return "Couldn't reach the update server. You may be offline."
+  }
+  if (t.includes('signature') || t.includes('minisign') || t.includes('verify')) {
+    return 'That update failed its signature check, so it was not installed.'
+  }
+  if (t.includes('unpack') || t.includes('extract')) {
+    return 'The downloaded update could not be unpacked.'
+  }
+  return raw
+}
+
 export async function checkForUpdate(manual = false): Promise<void> {
   if (!isTauri) return
   if (state.phase === 'checking' || state.phase === 'downloading') return
@@ -73,10 +100,8 @@ export async function checkForUpdate(manual = false): Promise<void> {
   } catch (err) {
     /* Offline, GitHub down, no release yet - none of it is the user's problem,
        and a manual check is the only time anyone is waiting on an answer. */
-    setState({
-      phase: manual ? 'error' : 'idle',
-      message: err instanceof Error ? err.message : String(err),
-    })
+    const raw = err instanceof Error ? err.message : String(err)
+    setState({ phase: manual ? 'error' : 'idle', message: friendlyError(raw), raw })
   }
 }
 
@@ -96,7 +121,8 @@ export async function installUpdate(): Promise<void> {
     })
     setState({ phase: 'ready', progress: 1 })
   } catch (err) {
-    setState({ phase: 'error', message: err instanceof Error ? err.message : String(err) })
+    const raw = err instanceof Error ? err.message : String(err)
+    setState({ phase: 'error', message: friendlyError(raw), raw })
   }
 }
 
@@ -112,7 +138,7 @@ export async function restartIntoUpdate(): Promise<void> {
 }
 
 export function dismissUpdate(): void {
-  setState({ phase: 'idle', info: null, progress: 0, message: undefined })
+  setState({ phase: 'idle', info: null, progress: 0, message: undefined, raw: undefined })
 }
 
 let started = false

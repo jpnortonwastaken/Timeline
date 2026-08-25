@@ -10,7 +10,7 @@ import { checkForUpdate, dismissUpdate, installUpdate, restartIntoUpdate, useUpd
 import { useStore } from '../store'
 
 export function UpdateBanner() {
-  const { phase, info, progress, message } = useUpdate()
+  const { phase, info, progress, message, raw } = useUpdate()
   /* Clear of the overview strip, like the sign-in nudge. */
   const showMinimap = useStore((s) => s.showMinimap)
 
@@ -31,7 +31,7 @@ export function UpdateBanner() {
           <strong>Update failed</strong>
           {/* `title` keeps the whole message reachable on hover, since the
               visible text is deliberately clamped. */}
-          <span className="update-detail" title={message}>
+          <span className="update-detail" title={raw ?? message}>
             {message ?? 'Something went wrong installing the update.'}
           </span>
         </div>
