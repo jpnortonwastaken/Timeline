@@ -980,7 +980,22 @@ export function Timeline() {
     const depX = target.closest('.dep-x')
     if (depX) {
       const id = depX.closest('[data-dep-id]')?.getAttribute('data-dep-id')
-      if (id) removeDep(id)
+      if (id) {
+        /*
+         * Removed on release, not on press, and only if the pointer is still on
+         * the button. Pressing something irreversible and sliding off to think
+         * better of it is how every button on the platform behaves, and this one
+         * deletes work.
+         */
+        const onUp = (ev: PointerEvent) => {
+          window.removeEventListener('pointerup', onUp, true)
+          depX.classList.remove('pressing')
+          const still = (ev.target as Element | null)?.closest?.('.dep-x')
+          if (still === depX) removeDep(id)
+        }
+        depX.classList.add('pressing')
+        window.addEventListener('pointerup', onUp, true)
+      }
       return
     }
 

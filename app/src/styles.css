@@ -940,6 +940,10 @@ body[data-drag] .new-outline { opacity: 0; }
   pointer-events: none;
 }
 .bar-inner.outside .bar-label { color: var(--text-2); font-weight: 400; }
+/* Outside the bar, the title is the only thing left to aim at, so it selects
+   and drags like the bar does. Inside, it stays inert - it overlaps the resize
+   grips, which need those pixels more. */
+.bar-inner.outside .bar-label { pointer-events: auto; cursor: pointer; }
 .bar-chev { width: 15px; height: 15px; margin-left: -3px; color: var(--text-2); }
 /* Out of view it takes no width, so labels aren't permanently indented by a
    twisty that isn't there. The box itself never fades - it is only a clipping
@@ -1101,6 +1105,10 @@ body[data-drag] .new-outline { opacity: 0; }
 g[data-dep-id]:hover .dep-x { opacity: 1; pointer-events: auto; }
 .dep-x:hover .dep-x-bg { fill: var(--c-red); stroke: var(--c-red); }
 .dep-x:hover .dep-x-mark { stroke: #fff; }
+/* Held down. Stays put if the pointer slides away, so it is visible that the
+   press was let go of somewhere else and nothing happened. */
+.dep-x.pressing .dep-x-bg { fill: var(--c-red); stroke: var(--c-red); }
+.dep-x.pressing .dep-x-mark { stroke: #fff; }
 /* The line it would remove, called out while the button is under the pointer. */
 g[data-dep-id]:has(.dep-x:hover) .dep-path,
 g[data-dep-id]:has(.dep-x:hover) .dep-head { stroke: var(--c-red); }
@@ -1149,12 +1157,24 @@ g[data-dep-id]:has(.dep-x:hover) .dep-head { fill: var(--c-red); }
 .milestone.is-dropped { opacity: 0.3; }
 .milestone.is-dropped .milestone-label { text-decoration: line-through; }
 
+/*
+ * A milestone is a ~26px diamond, so its title is most of what there is to aim
+ * at. It selects and drags the milestone like any other part of it.
+ *
+ * Sitting above the end port, and 8px out rather than 2px, for the same reason
+ * the outside label on a narrow bar does: the port's invisible target starts at
+ * the diamond's edge, and without a gap in front of it there is nowhere left to
+ * grab a dependency from.
+ */
 .milestone-label {
-  position: absolute; left: calc(100% + 2px); top: 50%;
+  position: absolute; left: calc(100% + 8px); top: 50%;
   transform: translateY(-50%);
   white-space: nowrap; font-size: 14px; color: var(--text-2);
-  pointer-events: none;
+  z-index: 5; cursor: pointer;
+  transition: left 0.16s cubic-bezier(0.32, 0.72, 0, 1);
 }
+.milestone:has(.link-port-end:hover) .milestone-label { left: calc(100% + 30px); }
+@media (prefers-reduced-motion: reduce) { .milestone-label { transition: none; } }
 
 /* marquee ----------------------------------------------------------------- */
 .marquee {
